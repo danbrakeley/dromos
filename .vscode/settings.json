@@ -18,4 +18,11 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true
   },
+  "cSpell.words": [
+    "bsdiff",
+    "Dromos",
+    "headered",
+    "headerless",
+    "xdelta"
+  ],
 }
