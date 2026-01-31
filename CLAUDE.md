@@ -2,11 +2,6 @@
 
 ## Open Design Questions
 
-### ROM Identification
-
-- How to handle headered vs headerless ROMs?
-- Should regional variants be separate nodes or metadata on a single node?
-
 ### Diff Format
 
 - IPS/BPS (ROM hacking standard, BPS has checksums)

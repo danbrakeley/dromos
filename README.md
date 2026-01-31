@@ -31,3 +31,13 @@ cargo test           # Run tests
 cargo clippy         # Run linter
 cargo fmt            # Format code
 ```
+
+## TODO
+
+- generate first graph connection with diff
+- re-create modded ROM original ROM + diff database.
+
+## DONE
+
+- ✅ parse NES header and only hash actual ROM data
+- ✅ read file and generate hash
