@@ -20,3 +20,14 @@ Users supply a ROM they already possess, and Dromos shows which related ROMs are
 ## Status
 
 Early design phase.
+
+## Development
+
+```bash
+cargo build          # Build debug version
+cargo build --release # Build optimized release version
+cargo run            # Build and run
+cargo test           # Run tests
+cargo clippy         # Run linter
+cargo fmt            # Format code
+```

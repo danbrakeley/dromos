@@ -1,7 +1,6 @@
 ---
 status: accepted
 date: 2026-01-31
-decision-makers: [human]
 ---
 
 # Use Rust for Implementation

@@ -4,7 +4,6 @@
 
 ### ROM Identification
 
-- Which hash algorithm(s)? CRC32, MD5, SHA1, or multiple?
 - How to handle headered vs headerless ROMs?
 - Should regional variants be separate nodes or metadata on a single node?
 
@@ -43,6 +42,8 @@ Significant decisions are documented in `docs/decisions/` using the [MADR 4.0.0]
 ## Decisions Made
 
 See `docs/decisions/` for formal records. Informal/minor decisions can be noted here.
+
+- **ROM hashing**: SHA-256 (see ADR-0002)
 
 ## Conventions
 
