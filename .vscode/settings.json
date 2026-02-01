@@ -24,6 +24,11 @@
     "Dromos",
     "headered",
     "headerless",
+    "hexdigit",
+    "pathfinding",
+    "petgraph",
+    "reimplementation",
+    "thiserror",
     "xdelta"
   ],
 }

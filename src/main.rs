@@ -1,107 +1,109 @@
 use clap::Parser;
-use sha2::{Digest, Sha256};
-use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
-#[derive(Parser)]
-#[command(name = "dromos")]
-#[command(about = "ROM image management through binary diffs")]
-struct Cli {
-    /// File to hash
-    file: PathBuf,
-}
+use dromos::cli::{Cli, Commands, RootRef};
+use dromos::config::StorageConfig;
+use dromos::rom::{format_hash, hash_rom_file};
+use dromos::storage::StorageManager;
 
-#[derive(Debug)]
-enum RomType {
-    Nes,
-}
-
-#[derive(Debug)]
-struct NesHeader {
-    prg_rom_size: usize,
-    chr_rom_size: usize,
-    has_trainer: bool,
-}
-
-fn detect_rom_type(path: &Path) -> Option<RomType> {
-    match path.extension()?.to_str()?.to_lowercase().as_str() {
-        "nes" => Some(RomType::Nes),
-        _ => None,
-    }
-}
-
-fn parse_nes_header(reader: &mut BufReader<File>) -> std::io::Result<Option<NesHeader>> {
-    let mut header = [0u8; 16];
-    reader.read_exact(&mut header)?;
-
-    // Check for "NES\x1A" magic bytes
-    if &header[0..4] != b"NES\x1a" {
-        return Ok(None);
-    }
-
-    let prg_rom_size = header[4] as usize * 16 * 1024; // 16 KB units
-    let chr_rom_size = header[5] as usize * 8 * 1024; // 8 KB units
-    let has_trainer = (header[6] & 0x04) != 0;
-
-    Ok(Some(NesHeader {
-        prg_rom_size,
-        chr_rom_size,
-        has_trainer,
-    }))
-}
-
-fn hash_remaining(reader: &mut BufReader<File>) -> std::io::Result<[u8; 32]> {
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = reader.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(hasher.finalize().into())
-}
-
-fn main() -> std::io::Result<()> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let file = File::open(&cli.file)?;
-    let mut reader = BufReader::new(file);
+    if let Err(e) = run(cli) {
+        eprintln!("Error: {}", e);
+        return ExitCode::FAILURE;
+    }
 
-    let hash = match detect_rom_type(&cli.file) {
-        Some(RomType::Nes) => {
-            match parse_nes_header(&mut reader)? {
-                Some(header) => {
-                    // Skip trainer if present
-                    if header.has_trainer {
-                        reader.seek(SeekFrom::Current(512))?;
-                    }
+    ExitCode::SUCCESS
+}
 
-                    let hash = hash_remaining(&mut reader)?;
+fn run(cli: Cli) -> dromos::Result<()> {
+    match cli.command {
+        Commands::Hash { file } => {
+            let metadata = hash_rom_file(&file)?;
 
-                    println!("Hash: {:x}", sha2::digest::generic_array::GenericArray::from(hash));
-                    println!("Type: NES");
-                    println!("PRG ROM: {} KB", header.prg_rom_size / 1024);
-                    println!("CHR ROM: {} KB", header.chr_rom_size / 1024);
-                    println!("Trainer: {}", if header.has_trainer { "Yes" } else { "No" });
+            println!("Hash: {}", format_hash(&metadata.sha256));
+            println!("Type: {}", metadata.rom_type);
 
-                    return Ok(());
-                }
-                None => {
-                    // Not a valid NES file despite extension, hash full file
-                    reader.seek(SeekFrom::Start(0))?;
-                    hash_remaining(&mut reader)?
+            if let Some(header) = &metadata.nes_header {
+                println!("PRG ROM: {} KB", header.prg_rom_size / 1024);
+                println!("CHR ROM: {} KB", header.chr_rom_size / 1024);
+                println!("Trainer: {}", if header.has_trainer { "Yes" } else { "No" });
+            }
+
+            Ok(())
+        }
+
+        Commands::AddRoot { file } => {
+            let config = StorageConfig::default_paths()
+                .ok_or_else(|| dromos::DromosError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not determine data directory",
+                )))?;
+
+            let mut storage = StorageManager::open(config)?;
+            let metadata = storage.add_root(&file)?;
+
+            println!("Added root ROM:");
+            println!("  Hash: {}", format_hash(&metadata.sha256));
+            println!("  Type: {}", metadata.rom_type);
+            if let Some(name) = &metadata.filename {
+                println!("  File: {}", name);
+            }
+
+            Ok(())
+        }
+
+        Commands::AddMod { root, mod_file } => {
+            let config = StorageConfig::default_paths()
+                .ok_or_else(|| dromos::DromosError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not determine data directory",
+                )))?;
+
+            let mut storage = StorageManager::open(config)?;
+            let root_ref = RootRef::parse(&root);
+            let metadata = storage.add_mod(root_ref, &mod_file)?;
+
+            println!("Added mod ROM:");
+            println!("  Hash: {}", format_hash(&metadata.sha256));
+            println!("  Type: {}", metadata.rom_type);
+            if let Some(name) = &metadata.filename {
+                println!("  File: {}", name);
+            }
+
+            Ok(())
+        }
+
+        Commands::List => {
+            let config = StorageConfig::default_paths()
+                .ok_or_else(|| dromos::DromosError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not determine data directory",
+                )))?;
+
+            let storage = StorageManager::open(config)?;
+            let (nodes, edges) = storage.list();
+
+            if nodes.is_empty() {
+                println!("No ROMs in database.");
+                return Ok(());
+            }
+
+            println!("ROMs ({}):", nodes.len());
+            for node in &nodes {
+                let name = node.filename.as_deref().unwrap_or("<unnamed>");
+                println!("  {} {} ({})", &format_hash(&node.sha256)[..16], name, node.rom_type);
+            }
+
+            if !edges.is_empty() {
+                println!("\nEdges ({}):", edges.len());
+                for (src, tgt, size) in &edges {
+                    println!("  {}... -> {}... ({} bytes)", &src[..16], &tgt[..16], size);
                 }
             }
+
+            Ok(())
         }
-        None => hash_remaining(&mut reader)?,
-    };
-
-    println!("{:x}", sha2::digest::generic_array::GenericArray::from(hash));
-
-    Ok(())
+    }
 }

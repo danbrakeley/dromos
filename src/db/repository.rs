@@ -1,0 +1,218 @@
+use rusqlite::{params, Connection, OptionalExtension};
+
+use crate::error::{DromosError, Result};
+use crate::rom::{format_hash, RomType};
+
+#[derive(Debug, Clone)]
+pub struct NodeRow {
+    pub id: i64,
+    pub sha256: [u8; 32],
+    pub filename: Option<String>,
+    pub rom_type: RomType,
+    pub prg_rom_size: Option<usize>,
+    pub chr_rom_size: Option<usize>,
+    pub has_trainer: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EdgeRow {
+    pub id: i64,
+    pub source_id: i64,
+    pub target_id: i64,
+    pub diff_path: String,
+    pub diff_size: i64,
+}
+
+pub struct Repository<'a> {
+    conn: &'a Connection,
+}
+
+impl<'a> Repository<'a> {
+    pub fn new(conn: &'a Connection) -> Self {
+        Repository { conn }
+    }
+
+    pub fn insert_node(
+        &self,
+        sha256: &[u8; 32],
+        filename: Option<&str>,
+        rom_type: RomType,
+        prg_rom_size: Option<usize>,
+        chr_rom_size: Option<usize>,
+        has_trainer: Option<bool>,
+    ) -> Result<i64> {
+        let hash_hex = format_hash(sha256);
+
+        // Check if already exists
+        if self.get_node_by_hash(sha256)?.is_some() {
+            return Err(DromosError::RomAlreadyExists { hash: hash_hex });
+        }
+
+        self.conn.execute(
+            "INSERT INTO nodes (sha256, filename, rom_type, prg_rom_size, chr_rom_size, has_trainer)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                hash_hex,
+                filename,
+                rom_type.as_str(),
+                prg_rom_size.map(|s| s as i64),
+                chr_rom_size.map(|s| s as i64),
+                has_trainer,
+            ],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn insert_edge(
+        &self,
+        source_id: i64,
+        target_id: i64,
+        diff_path: &str,
+        diff_size: i64,
+    ) -> Result<i64> {
+        // Check if edge already exists
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM edges WHERE source_id = ?1 AND target_id = ?2)",
+            params![source_id, target_id],
+            |row| row.get(0),
+        )?;
+
+        if exists {
+            return Err(DromosError::DiffAlreadyExists(
+                source_id.to_string(),
+                target_id.to_string(),
+            ));
+        }
+
+        self.conn.execute(
+            "INSERT INTO edges (source_id, target_id, diff_path, diff_size)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![source_id, target_id, diff_path, diff_size],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn get_node_by_hash(&self, sha256: &[u8; 32]) -> Result<Option<NodeRow>> {
+        let hash_hex = format_hash(sha256);
+
+        let result = self
+            .conn
+            .query_row(
+                "SELECT id, sha256, filename, rom_type, prg_rom_size, chr_rom_size, has_trainer
+                 FROM nodes WHERE sha256 = ?1",
+                params![hash_hex],
+                |row| {
+                    let hash_str: String = row.get(1)?;
+                    let sha256 = hex::decode(&hash_str)
+                        .ok()
+                        .and_then(|b| b.try_into().ok())
+                        .unwrap_or([0u8; 32]);
+                    let rom_type_str: String = row.get(3)?;
+                    let rom_type = RomType::from_str(&rom_type_str).unwrap_or(RomType::Nes);
+
+                    Ok(NodeRow {
+                        id: row.get(0)?,
+                        sha256,
+                        filename: row.get(2)?,
+                        rom_type,
+                        prg_rom_size: row.get::<_, Option<i64>>(4)?.map(|s| s as usize),
+                        chr_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
+                        has_trainer: row.get(6)?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(result)
+    }
+
+    pub fn get_node_by_id(&self, id: i64) -> Result<Option<NodeRow>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT id, sha256, filename, rom_type, prg_rom_size, chr_rom_size, has_trainer
+                 FROM nodes WHERE id = ?1",
+                params![id],
+                |row| {
+                    let hash_str: String = row.get(1)?;
+                    let sha256 = hex::decode(&hash_str)
+                        .ok()
+                        .and_then(|b| b.try_into().ok())
+                        .unwrap_or([0u8; 32]);
+                    let rom_type_str: String = row.get(3)?;
+                    let rom_type = RomType::from_str(&rom_type_str).unwrap_or(RomType::Nes);
+
+                    Ok(NodeRow {
+                        id: row.get(0)?,
+                        sha256,
+                        filename: row.get(2)?,
+                        rom_type,
+                        prg_rom_size: row.get::<_, Option<i64>>(4)?.map(|s| s as usize),
+                        chr_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
+                        has_trainer: row.get(6)?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(result)
+    }
+
+    pub fn load_all_nodes(&self) -> Result<Vec<NodeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, sha256, filename, rom_type, prg_rom_size, chr_rom_size, has_trainer
+             FROM nodes ORDER BY id",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let hash_str: String = row.get(1)?;
+            let sha256 = hex::decode(&hash_str)
+                .ok()
+                .and_then(|b| b.try_into().ok())
+                .unwrap_or([0u8; 32]);
+            let rom_type_str: String = row.get(3)?;
+            let rom_type = RomType::from_str(&rom_type_str).unwrap_or(RomType::Nes);
+
+            Ok(NodeRow {
+                id: row.get(0)?,
+                sha256,
+                filename: row.get(2)?,
+                rom_type,
+                prg_rom_size: row.get::<_, Option<i64>>(4)?.map(|s| s as usize),
+                chr_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
+                has_trainer: row.get(6)?,
+            })
+        })?;
+
+        let mut nodes = Vec::new();
+        for row in rows {
+            nodes.push(row?);
+        }
+        Ok(nodes)
+    }
+
+    pub fn load_all_edges(&self) -> Result<Vec<EdgeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, source_id, target_id, diff_path, diff_size
+             FROM edges ORDER BY id",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(EdgeRow {
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                target_id: row.get(2)?,
+                diff_path: row.get(3)?,
+                diff_size: row.get(4)?,
+            })
+        })?;
+
+        let mut edges = Vec::new();
+        for row in rows {
+            edges.push(row?);
+        }
+        Ok(edges)
+    }
+}

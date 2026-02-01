@@ -2,21 +2,15 @@
 
 ## Open Design Questions
 
-### Diff Format
-
-- IPS/BPS (ROM hacking standard, BPS has checksums)
-- bsdiff/xdelta (more efficient for arbitrary binaries)
-- Custom delta encoding?
-
 ### Graph Traversal
 
-- Direct neighbors only (requires chaining A→B→C→D)?
+- Direct neighbors only (requires chaining A→B→C→D)? ← current implementation
 - Store strategic shortcut diffs for popular paths?
 - Compute optimal paths on demand?
 
 ### Directionality
 
-- One-way diffs (smaller storage, limited traversal)?
+- One-way diffs (smaller storage, limited traversal)? ← current implementation
 - Bidirectional diffs (doubles storage, simpler navigation)?
 
 ## Architectural Decision Records (ADRs)
@@ -39,7 +33,13 @@ Significant decisions are documented in `docs/decisions/` using the [MADR 4.0.0]
 See `docs/decisions/` for formal records. Informal/minor decisions can be noted here.
 
 - **ROM hashing**: SHA-256 (see ADR-0002)
+- **Diff format**: bsdiff (efficient for arbitrary binaries)
+- **Database**: SQLite (source of truth) + petgraph StableGraph (in-memory cache rebuilt on startup)
+- **Storage locations**: Platform-specific via `directories` crate (`%APPDATA%\dromos\data\` on Windows)
+- **Diff storage**: Stored as files in `diffs/` directory (not database BLOBs)
 
 ## Conventions
 
-(To be established as development progresses)
+- Module structure: `cli/`, `rom/`, `db/`, `graph/`, `storage/`, `diff/`
+- Error handling: `thiserror` with `DromosError` enum in `error.rs`
+- Hash display: First 16 hex chars for short display, full 64 for identification

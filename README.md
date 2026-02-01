@@ -34,10 +34,10 @@ cargo fmt            # Format code
 
 ## TODO
 
-- generate first graph connection with diff
 - re-create modded ROM original ROM + diff database.
 
 ## DONE
 
+- ✅ generate first graph connection with diff
 - ✅ parse NES header and only hash actual ROM data
 - ✅ read file and generate hash
