@@ -69,9 +69,9 @@ impl RomGraph {
     }
 
     pub fn iter_nodes(&self) -> impl Iterator<Item = (NodeIndex, &RomNode)> {
-        self.graph.node_indices().filter_map(|idx| {
-            self.graph.node_weight(idx).map(|node| (idx, node))
-        })
+        self.graph
+            .node_indices()
+            .filter_map(|idx| self.graph.node_weight(idx).map(|node| (idx, node)))
     }
 
     pub fn iter_edges(&self) -> impl Iterator<Item = (NodeIndex, NodeIndex, &DiffEdge)> {

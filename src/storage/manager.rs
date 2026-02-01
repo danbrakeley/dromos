@@ -3,11 +3,11 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::StorageConfig;
-use crate::db::{run_migrations, Repository};
+use crate::db::{Repository, run_migrations};
 use crate::diff;
 use crate::error::Result;
 use crate::graph::{DiffEdge, RomGraph, RomNode};
-use crate::rom::{format_hash, hash_rom_file, read_rom_bytes, RomMetadata};
+use crate::rom::{RomMetadata, format_hash, hash_rom_file, read_rom_bytes};
 
 /// Result of removing a node
 pub struct RemoveResult {
@@ -97,7 +97,9 @@ impl StorageManager {
 
     /// Get a node by hash, if it exists
     pub fn get_node_by_hash(&self, sha256: &[u8; 32]) -> Option<&RomNode> {
-        self.graph.get_node_by_hash(sha256).and_then(|idx| self.graph.get_node(idx))
+        self.graph
+            .get_node_by_hash(sha256)
+            .and_then(|idx| self.graph.get_node(idx))
     }
 
     /// Check if a ROM with the given hash exists

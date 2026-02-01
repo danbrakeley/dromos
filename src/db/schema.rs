@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{M, Migrations};
 
 use crate::error::Result;
 

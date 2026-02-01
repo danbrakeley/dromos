@@ -84,21 +84,17 @@ pub fn read_rom_bytes(path: &Path) -> Result<Vec<u8>> {
     let mut reader = BufReader::new(file);
 
     match detect_rom_type(path) {
-        Some(RomType::Nes) => {
-            match parse_nes_header(&mut reader)? {
-                Some(header) => {
-                    skip_trainer_if_present(&mut reader, &header)?;
-                    let mut bytes = Vec::new();
-                    reader.read_to_end(&mut bytes)?;
-                    Ok(bytes)
-                }
-                None => {
-                    Err(DromosError::InvalidNesFile {
-                        path: path.to_path_buf(),
-                    })
-                }
+        Some(RomType::Nes) => match parse_nes_header(&mut reader)? {
+            Some(header) => {
+                skip_trainer_if_present(&mut reader, &header)?;
+                let mut bytes = Vec::new();
+                reader.read_to_end(&mut bytes)?;
+                Ok(bytes)
             }
-        }
+            None => Err(DromosError::InvalidNesFile {
+                path: path.to_path_buf(),
+            }),
+        },
         None => {
             // For unknown types, read the whole file
             reader.seek(SeekFrom::Start(0))?;

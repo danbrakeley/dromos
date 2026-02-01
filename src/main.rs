@@ -1,8 +1,8 @@
 use std::process::ExitCode;
 
 use git_version::git_version;
-use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use rustyline::error::ReadlineError;
 
 const VERSION: &str = git_version!(
     args = ["--tags", "--always", "--dirty=-modified"],
@@ -58,7 +58,7 @@ fn run() -> dromos::Result<()> {
                     None => continue, // Empty line
                     Some(Err(e)) => eprintln!("{}", e),
                     Some(Ok(cmd)) => match state.execute(cmd, &mut rl) {
-                        Ok(true) => {} // Continue
+                        Ok(true) => {}      // Continue
                         Ok(false) => break, // Quit requested
                         Err(e) => eprintln!("Error: {}", e),
                     },
@@ -87,6 +87,5 @@ fn run() -> dromos::Result<()> {
 }
 
 fn dirs_history_path() -> Option<std::path::PathBuf> {
-    directories::ProjectDirs::from("", "", "dromos")
-        .map(|dirs| dirs.data_dir().join("history.txt"))
+    directories::ProjectDirs::from("", "", "dromos").map(|dirs| dirs.data_dir().join("history.txt"))
 }

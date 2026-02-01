@@ -1,7 +1,7 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::{DromosError, Result};
-use crate::rom::{format_hash, RomMetadata, RomType};
+use crate::rom::{RomMetadata, RomType, format_hash};
 
 #[derive(Debug, Clone)]
 pub struct NodeRow {
@@ -42,7 +42,11 @@ impl<'a> Repository<'a> {
         }
 
         let (prg_rom_size, chr_rom_size, has_trainer) = match &metadata.nes_header {
-            Some(h) => (Some(h.prg_rom_size), Some(h.chr_rom_size), Some(h.has_trainer)),
+            Some(h) => (
+                Some(h.prg_rom_size),
+                Some(h.chr_rom_size),
+                Some(h.has_trainer),
+            ),
             None => (None, None, None),
         };
 
@@ -257,7 +261,8 @@ impl<'a> Repository<'a> {
         )?;
 
         // Delete the node itself
-        self.conn.execute("DELETE FROM nodes WHERE id = ?1", params![node_id])?;
+        self.conn
+            .execute("DELETE FROM nodes WHERE id = ?1", params![node_id])?;
 
         Ok(())
     }

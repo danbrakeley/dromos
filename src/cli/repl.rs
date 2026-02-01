@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use rustyline::history::DefaultHistory;
 use rustyline::Editor;
+use rustyline::history::DefaultHistory;
 
 use crate::config::StorageConfig;
 use crate::error::Result;
@@ -10,8 +10,8 @@ use crate::graph::RomNode;
 use crate::rom::{format_hash, hash_rom_file};
 use crate::storage::StorageManager;
 
-use super::completer::DromosHelper;
 use super::Command;
+use super::completer::DromosHelper;
 
 pub struct ReplState {
     pub storage: StorageManager,
@@ -33,7 +33,11 @@ impl ReplState {
         })
     }
 
-    pub fn execute(&mut self, cmd: Command, rl: &mut Editor<DromosHelper, DefaultHistory>) -> Result<bool> {
+    pub fn execute(
+        &mut self,
+        cmd: Command,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<bool> {
         match cmd {
             Command::Quit => return Ok(false),
             Command::Help => self.print_help(),
@@ -70,16 +74,17 @@ impl ReplState {
         if let Some(header) = &metadata.nes_header {
             println!("PRG ROM: {} KB", header.prg_rom_size / 1024);
             println!("CHR ROM: {} KB", header.chr_rom_size / 1024);
-            println!(
-                "Trainer: {}",
-                if header.has_trainer { "Yes" } else { "No" }
-            );
+            println!("Trainer: {}", if header.has_trainer { "Yes" } else { "No" });
         }
 
         Ok(())
     }
 
-    fn cmd_add(&mut self, file: &Path, rl: &mut Editor<DromosHelper, DefaultHistory>) -> Result<()> {
+    fn cmd_add(
+        &mut self,
+        file: &Path,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<()> {
         // Check if file exists
         if !file.exists() {
             eprintln!("File not found: {}", file.display());
@@ -122,7 +127,11 @@ impl ReplState {
         Ok(())
     }
 
-    fn cmd_link(&mut self, files: &[std::path::PathBuf], rl: &mut Editor<DromosHelper, DefaultHistory>) -> Result<()> {
+    fn cmd_link(
+        &mut self,
+        files: &[std::path::PathBuf],
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<()> {
         match files.len() {
             1 => self.link_to_last(&files[0], rl),
             2 => self.link_two_files(&files[0], &files[1], rl),
@@ -133,7 +142,11 @@ impl ReplState {
         }
     }
 
-    fn link_to_last(&mut self, file: &Path, rl: &mut Editor<DromosHelper, DefaultHistory>) -> Result<()> {
+    fn link_to_last(
+        &mut self,
+        file: &Path,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<()> {
         let last = match &self.last_added {
             Some(last) => last.clone(),
             None => {
@@ -202,7 +215,12 @@ impl ReplState {
         Ok(())
     }
 
-    fn link_two_files(&mut self, file_a: &Path, file_b: &Path, rl: &mut Editor<DromosHelper, DefaultHistory>) -> Result<()> {
+    fn link_two_files(
+        &mut self,
+        file_a: &Path,
+        file_b: &Path,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<()> {
         // Check both files exist
         if !file_a.exists() {
             eprintln!("File not found: {}", file_a.display());
@@ -219,7 +237,10 @@ impl ReplState {
 
         // Add first file if needed
         let title_a = if !self.storage.node_exists(&metadata_a.sha256) {
-            let filename = file_a.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            let filename = file_a
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file");
             println!("Adding file {}", filename);
             let default_title = title_from_filename(file_a);
             let title = prompt_with_initial(rl, "Title", &default_title)?;
@@ -237,7 +258,10 @@ impl ReplState {
 
         // Add second file if needed
         let title_b = if !self.storage.node_exists(&metadata_b.sha256) {
-            let filename = file_b.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            let filename = file_b
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file");
             println!("Adding file {}", filename);
             let default_title = title_from_filename(file_b);
             let title = prompt_with_initial(rl, "Title", &default_title)?;
@@ -281,7 +305,11 @@ impl ReplState {
         for node in sorted_nodes {
             let link_count = self.storage.link_count(&node.sha256);
             let link_info = if link_count > 0 {
-                format!("  [{} link{}]", link_count, if link_count == 1 { "" } else { "s" })
+                format!(
+                    "  [{} link{}]",
+                    link_count,
+                    if link_count == 1 { "" } else { "s" }
+                )
             } else {
                 String::new()
             };
@@ -321,11 +349,7 @@ impl ReplState {
         match neighbors {
             Some(links) if !links.is_empty() => {
                 for (neighbor, diff_size) in links {
-                    println!(
-                        "  -> {}  ({})",
-                        neighbor.title,
-                        format_size(diff_size)
-                    );
+                    println!("  -> {}  ({})", neighbor.title, format_size(diff_size));
                 }
             }
             _ => {
@@ -354,7 +378,10 @@ impl ReplState {
 
         // Prompt for confirmation
         let link_text = if link_count == 1 { "link" } else { "links" };
-        print!("Remove '{}' and {} {}? [y/N]: ", title, link_count, link_text);
+        print!(
+            "Remove '{}' and {} {}? [y/N]: ",
+            title, link_count, link_text
+        );
         io::stdout().flush()?;
 
         let mut input = String::new();
@@ -375,7 +402,11 @@ impl ReplState {
             result.edges_removed,
             if result.edges_removed == 1 { "" } else { "s" },
             result.diff_files_removed,
-            if result.diff_files_removed == 1 { "" } else { "s" }
+            if result.diff_files_removed == 1 {
+                ""
+            } else {
+                "s"
+            }
         );
 
         // Clear last_added if it was the removed node
@@ -414,7 +445,11 @@ impl ReplState {
 }
 
 /// Prompt the user with an editable initial value using rustyline.
-fn prompt_with_initial(rl: &mut Editor<DromosHelper, DefaultHistory>, prompt: &str, initial: &str) -> Result<String> {
+fn prompt_with_initial(
+    rl: &mut Editor<DromosHelper, DefaultHistory>,
+    prompt: &str,
+    initial: &str,
+) -> Result<String> {
     let prompt_str = format!("{}: ", prompt);
     match rl.readline_with_initial(&prompt_str, (initial, "")) {
         Ok(line) => {
@@ -431,8 +466,8 @@ fn prompt_with_initial(rl: &mut Editor<DromosHelper, DefaultHistory>, prompt: &s
 
 /// Known ROM file extensions to strip from titles.
 const ROM_EXTENSIONS: &[&str] = &[
-    ".nes", ".smc", ".sfc", ".gb", ".gbc", ".gba", ".nds", ".n64", ".z64", ".v64",
-    ".gen", ".md", ".sms", ".gg", ".pce", ".bin", ".iso", ".cue", ".zip", ".7z",
+    ".nes", ".smc", ".sfc", ".gb", ".gbc", ".gba", ".nds", ".n64", ".z64", ".v64", ".gen", ".md",
+    ".sms", ".gg", ".pce", ".bin", ".iso", ".cue", ".zip", ".7z",
 ];
 
 /// Extract a title from a filename, stripping known ROM extensions.

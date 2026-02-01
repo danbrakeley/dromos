@@ -49,21 +49,25 @@ See `docs/decisions/` for formal records. Informal/minor decisions can be noted 
 When adding a new command, modify these files in order:
 
 ### 1. `src/cli/commands.rs`
+
 - Add variant to `Command` enum (e.g., `Rm { target: String }`)
 - Add parsing in `Command::parse()` match arm
 - Support aliases if needed (e.g., `"rm" | "remove"`)
 - Return `Err("Usage: ...")` if required args missing
 
 ### 2. `src/cli/completer.rs`
+
 - Add command name(s) to `ALL_COMMANDS` array
 - If command takes file paths, add to `FILE_COMMANDS` array
 
 ### 3. `src/cli/repl.rs`
+
 - Add match arm in `execute()` to call handler method
 - Add help text in `print_help()`
 - Implement `cmd_<name>()` handler method
 
 ### 4. `README.md`
+
 - Update help output in usage example
 - Move relevant item from TODO to DONE (if applicable)
 

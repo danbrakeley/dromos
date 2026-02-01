@@ -68,7 +68,10 @@ cargo fmt            # Format code
 
 ## TODO
 
-- derive a rom file by using a starting rom file a db link
+- should we re-organize so that "root" nodes have their original roms stored in the database?
+  - or nodes can optionally have the actual rom stored in the database.
+  - nodes will also need metadata for headers that aren't included in the diffs
+- (re-)build a rom file by using a starting rom file a db link
 - colorized output
 - unit tests: where are they and how robust are they?
 
