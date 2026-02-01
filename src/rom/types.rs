@@ -6,6 +6,29 @@ pub enum RomType {
     Nes,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mirroring {
+    Horizontal = 0,
+    Vertical = 1,
+    FourScreen = 2,
+}
+
+impl From<u8> for Mirroring {
+    fn from(value: u8) -> Self {
+        match value {
+            1 => Mirroring::Vertical,
+            2 => Mirroring::FourScreen,
+            _ => Mirroring::Horizontal,
+        }
+    }
+}
+
+impl From<Mirroring> for u8 {
+    fn from(m: Mirroring) -> u8 {
+        m as u8
+    }
+}
+
 impl fmt::Display for RomType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -38,6 +61,11 @@ pub struct NesHeader {
     pub prg_rom_size: usize,
     pub chr_rom_size: usize,
     pub has_trainer: bool,
+    pub mapper: u16,
+    pub mirroring: Mirroring,
+    pub has_battery: bool,
+    pub is_nes2: bool,
+    pub submapper: Option<u8>,
 }
 
 #[derive(Debug, Clone)]

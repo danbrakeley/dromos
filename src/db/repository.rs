@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::{DromosError, Result};
-use crate::rom::{RomMetadata, RomType, format_hash};
+use crate::rom::{Mirroring, NesHeader, RomMetadata, RomType, format_hash};
 
 #[derive(Debug, Clone)]
 pub struct NodeRow {
@@ -13,6 +13,28 @@ pub struct NodeRow {
     pub prg_rom_size: Option<usize>,
     pub chr_rom_size: Option<usize>,
     pub has_trainer: Option<bool>,
+    pub mapper: Option<u16>,
+    pub mirroring: Option<Mirroring>,
+    pub has_battery: Option<bool>,
+    pub is_nes2: Option<bool>,
+    pub submapper: Option<u8>,
+}
+
+impl NodeRow {
+    /// Convert stored metadata to an NesHeader for file reconstruction.
+    /// Returns None if required NES header fields are missing.
+    pub fn to_nes_header(&self) -> Option<NesHeader> {
+        Some(NesHeader {
+            prg_rom_size: self.prg_rom_size?,
+            chr_rom_size: self.chr_rom_size?,
+            has_trainer: self.has_trainer.unwrap_or(false),
+            mapper: self.mapper.unwrap_or(0),
+            mirroring: self.mirroring.unwrap_or(Mirroring::Horizontal),
+            has_battery: self.has_battery.unwrap_or(false),
+            is_nes2: self.is_nes2.unwrap_or(false),
+            submapper: self.submapper,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -41,18 +63,32 @@ impl<'a> Repository<'a> {
             return Err(DromosError::RomAlreadyExists { hash: hash_hex });
         }
 
-        let (prg_rom_size, chr_rom_size, has_trainer) = match &metadata.nes_header {
+        let (
+            prg_rom_size,
+            chr_rom_size,
+            has_trainer,
+            mapper,
+            mirroring,
+            has_battery,
+            is_nes2,
+            submapper,
+        ) = match &metadata.nes_header {
             Some(h) => (
                 Some(h.prg_rom_size),
                 Some(h.chr_rom_size),
                 Some(h.has_trainer),
+                Some(h.mapper),
+                Some(h.mirroring as u8),
+                Some(h.has_battery),
+                Some(h.is_nes2),
+                h.submapper,
             ),
-            None => (None, None, None),
+            None => (None, None, None, None, None, None, None, None),
         };
 
         self.conn.execute(
-            "INSERT INTO nodes (sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO nodes (sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 hash_hex,
                 metadata.filename.as_deref(),
@@ -61,6 +97,11 @@ impl<'a> Repository<'a> {
                 prg_rom_size.map(|s| s as i64),
                 chr_rom_size.map(|s| s as i64),
                 has_trainer,
+                mapper.map(|m| m as i64),
+                mirroring.map(|m| m as i64),
+                has_battery,
+                is_nes2,
+                submapper.map(|s| s as i64),
             ],
         )?;
 
@@ -103,7 +144,7 @@ impl<'a> Repository<'a> {
         let result = self
             .conn
             .query_row(
-                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer
+                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper
                  FROM nodes WHERE sha256 = ?1",
                 params![hash_hex],
                 |row| {
@@ -126,6 +167,11 @@ impl<'a> Repository<'a> {
                         prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
                         chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
                         has_trainer: row.get(7)?,
+                        mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
+                        mirroring: row.get::<_, Option<i64>>(9)?.map(|m| Mirroring::from(m as u8)),
+                        has_battery: row.get(10)?,
+                        is_nes2: row.get(11)?,
+                        submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
                     })
                 },
             )
@@ -138,7 +184,7 @@ impl<'a> Repository<'a> {
         let result = self
             .conn
             .query_row(
-                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer
+                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper
                  FROM nodes WHERE id = ?1",
                 params![id],
                 |row| {
@@ -161,6 +207,11 @@ impl<'a> Repository<'a> {
                         prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
                         chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
                         has_trainer: row.get(7)?,
+                        mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
+                        mirroring: row.get::<_, Option<i64>>(9)?.map(|m| Mirroring::from(m as u8)),
+                        has_battery: row.get(10)?,
+                        is_nes2: row.get(11)?,
+                        submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
                     })
                 },
             )
@@ -171,7 +222,7 @@ impl<'a> Repository<'a> {
 
     pub fn load_all_nodes(&self) -> Result<Vec<NodeRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer
+            "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper
              FROM nodes ORDER BY id",
         )?;
 
@@ -195,6 +246,13 @@ impl<'a> Repository<'a> {
                 prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
                 chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
                 has_trainer: row.get(7)?,
+                mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
+                mirroring: row
+                    .get::<_, Option<i64>>(9)?
+                    .map(|m| Mirroring::from(m as u8)),
+                has_battery: row.get(10)?,
+                is_nes2: row.get(11)?,
+                submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
             })
         })?;
 
