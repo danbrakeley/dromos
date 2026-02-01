@@ -42,6 +42,7 @@ impl ReplState {
             Command::Link { files } => self.cmd_link(&files, rl)?,
             Command::Links { target } => self.cmd_links(&target)?,
             Command::List => self.cmd_list(),
+            Command::Rm { target } => self.cmd_rm(&target)?,
             Command::Search { query } => self.cmd_search(&query),
         }
         Ok(true)
@@ -53,6 +54,7 @@ impl ReplState {
         println!("  link <file1> [file2]    Create bidirectional links between ROMs");
         println!("  links <file|hash>       Show all links for a ROM");
         println!("  list, ls                List all ROMs (sorted by title)");
+        println!("  rm, remove <hash>       Remove a ROM and all its links");
         println!("  search <query>          Search ROMs by title");
         println!("  hash <file>             Show ROM hash without adding to database");
         println!("  help                    Show this help");
@@ -329,6 +331,58 @@ impl ReplState {
             _ => {
                 println!("  (no links)");
             }
+        }
+
+        Ok(())
+    }
+
+    fn cmd_rm(&mut self, target: &str) -> Result<()> {
+        // Try to find node by hash prefix
+        let node = self.storage.find_node_by_hash_prefix(target);
+
+        let node = match node {
+            Some(n) => n,
+            None => {
+                eprintln!("ROM not found: {}", target);
+                return Ok(());
+            }
+        };
+
+        let sha256 = node.sha256;
+        let title = node.title.clone();
+        let link_count = self.storage.link_count(&sha256);
+
+        // Prompt for confirmation
+        let link_text = if link_count == 1 { "link" } else { "links" };
+        print!("Remove '{}' and {} {}? [y/N]: ", title, link_count, link_text);
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+
+        if input != "y" && input != "yes" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+
+        // Perform the removal
+        let result = self.storage.remove_node(&sha256)?;
+
+        println!(
+            "Removed: {} ({} edge{}, {} diff file{})",
+            result.title,
+            result.edges_removed,
+            if result.edges_removed == 1 { "" } else { "s" },
+            result.diff_files_removed,
+            if result.diff_files_removed == 1 { "" } else { "s" }
+        );
+
+        // Clear last_added if it was the removed node
+        if let Some(ref last) = self.last_added
+            && last.hash == sha256
+        {
+            self.last_added = None;
         }
 
         Ok(())

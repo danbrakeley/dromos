@@ -45,7 +45,7 @@ fn run() -> dromos::Result<()> {
     println!(r" / _` | '__/ _ \| '_ ` _ \ / _ \/ __|");
     println!(r"| (_| | | | (_) | | | | | | (_) \__ \  {VERSION}");
     println!(r" \__,_|_|  \___/|_| |_| |_|\___/|___/  {BUILD_TIME}");
-    println!(r"");
+    println!();
     println!("  - type a command, e.g. \"help\" or \"exit\"");
     println!("  - press tab for autocomplete, and up/down for history");
 

@@ -223,4 +223,42 @@ impl<'a> Repository<'a> {
         }
         Ok(edges)
     }
+
+    /// Get all edges involving a node (as source or target)
+    pub fn get_edges_for_node(&self, node_id: i64) -> Result<Vec<EdgeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, source_id, target_id, diff_path, diff_size
+             FROM edges WHERE source_id = ?1 OR target_id = ?1",
+        )?;
+
+        let rows = stmt.query_map(params![node_id], |row| {
+            Ok(EdgeRow {
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                target_id: row.get(2)?,
+                diff_path: row.get(3)?,
+                diff_size: row.get(4)?,
+            })
+        })?;
+
+        let mut edges = Vec::new();
+        for row in rows {
+            edges.push(row?);
+        }
+        Ok(edges)
+    }
+
+    /// Delete all edges where source_id or target_id matches, then delete the node
+    pub fn delete_node(&self, node_id: i64) -> Result<()> {
+        // Delete all edges involving this node
+        self.conn.execute(
+            "DELETE FROM edges WHERE source_id = ?1 OR target_id = ?1",
+            params![node_id],
+        )?;
+
+        // Delete the node itself
+        self.conn.execute("DELETE FROM nodes WHERE id = ?1", params![node_id])?;
+
+        Ok(())
+    }
 }

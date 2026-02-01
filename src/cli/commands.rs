@@ -6,6 +6,7 @@ pub enum Command {
     Link { files: Vec<PathBuf> },
     Links { target: String },
     List,
+    Rm { target: String },
     Search { query: String },
     Hash { file: PathBuf },
     Help,
@@ -59,6 +60,15 @@ impl Command {
                 }
             }
             "list" | "ls" => Ok(Command::List),
+            "rm" | "remove" => {
+                if args.is_empty() {
+                    Err("Usage: rm <hash>".to_string())
+                } else {
+                    Ok(Command::Rm {
+                        target: args[0].clone(),
+                    })
+                }
+            }
             "search" => {
                 if args.is_empty() {
                     Err("Usage: search <query>".to_string())
@@ -150,6 +160,15 @@ mod tests {
         ));
         assert!(matches!(Command::parse("list"), Some(Ok(Command::List))));
         assert!(matches!(Command::parse("ls"), Some(Ok(Command::List))));
+        assert!(matches!(
+            Command::parse("rm abc123"),
+            Some(Ok(Command::Rm { target })) if target == "abc123"
+        ));
+        assert!(matches!(
+            Command::parse("remove abc123"),
+            Some(Ok(Command::Rm { target })) if target == "abc123"
+        ));
+        assert!(matches!(Command::parse("rm"), Some(Err(_))));
         assert!(matches!(Command::parse("quit"), Some(Ok(Command::Quit))));
         assert!(matches!(Command::parse("exit"), Some(Ok(Command::Quit))));
         assert!(matches!(Command::parse(""), None));

@@ -1,4 +1,5 @@
 use rusqlite::Connection;
+use std::fs;
 use std::path::Path;
 
 use crate::config::StorageConfig;
@@ -7,6 +8,13 @@ use crate::diff;
 use crate::error::Result;
 use crate::graph::{DiffEdge, RomGraph, RomNode};
 use crate::rom::{format_hash, hash_rom_file, read_rom_bytes, RomMetadata};
+
+/// Result of removing a node
+pub struct RemoveResult {
+    pub title: String,
+    pub edges_removed: usize,
+    pub diff_files_removed: usize,
+}
 
 pub struct StorageManager {
     conn: Connection,
@@ -213,5 +221,50 @@ impl StorageManager {
             .iter_nodes()
             .map(|(_, node)| node)
             .find(|node| format_hash(&node.sha256).starts_with(&prefix_lower))
+    }
+
+    /// Remove a node and all its associated links (edges and diff files)
+    pub fn remove_node(&mut self, sha256: &[u8; 32]) -> Result<RemoveResult> {
+        let repo = Repository::new(&self.conn);
+
+        // Get the node from database
+        let node_row = repo
+            .get_node_by_hash(sha256)?
+            .expect("Node must exist in database");
+
+        let title = node_row.title.clone();
+
+        // Get all edges involving this node
+        let edges = repo.get_edges_for_node(node_row.id)?;
+        let edges_removed = edges.len();
+
+        // Delete diff files from disk (tolerating missing files)
+        let mut diff_files_removed = 0;
+        for edge in &edges {
+            let diff_path = self.config.diffs_dir.join(&edge.diff_path);
+            match fs::remove_file(&diff_path) {
+                Ok(()) => diff_files_removed += 1,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!("Warning: diff file not found: {}", diff_path.display());
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to delete {}: {}", diff_path.display(), e);
+                }
+            }
+        }
+
+        // Delete edges and node from database
+        repo.delete_node(node_row.id)?;
+
+        // Remove node from in-memory graph
+        if let Some(idx) = self.graph.get_node_by_hash(sha256) {
+            self.graph.remove_node(idx);
+        }
+
+        Ok(RemoveResult {
+            title,
+            edges_removed,
+            diff_files_removed,
+        })
     }
 }

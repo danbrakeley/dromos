@@ -29,6 +29,7 @@ Commands:
   link <file1> [file2]    Create bidirectional links between ROMs
   links <file|hash>       Show all links for a ROM
   list, ls                List all ROMs (sorted by title)
+  rm, remove <hash>       Remove a ROM and all its links
   search <query>          Search ROMs by title
   hash <file>             Show ROM hash without adding to database
   help                    Show this help
@@ -67,15 +68,13 @@ cargo fmt            # Format code
 
 ## TODO
 
-- add a build version (maybe linked to a git tag/commit?)
-- remove a link (with confirmation)
-- remove a node (with confirmation)
 - derive a rom file by using a starting rom file a db link
 - colorized output
 - unit tests: where are they and how robust are they?
 
 ## DONE
 
+- Remove a ROM node and all its links with `rm` command (with confirmation)
 - Show link counts in list, view links for a ROM with `links` command
 - Tab completion for commands and file paths
 - Interactive REPL with command history

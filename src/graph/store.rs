@@ -99,6 +99,14 @@ impl RomGraph {
             })
             .collect()
     }
+
+    /// Remove a node and all its edges from the graph, returning the removed node data
+    pub fn remove_node(&mut self, idx: NodeIndex) -> Option<RomNode> {
+        let node = self.graph.remove_node(idx)?;
+        self.hash_to_node.remove(&node.sha256);
+        self.db_id_to_node.remove(&node.db_id);
+        Some(node)
+    }
 }
 
 impl Default for RomGraph {
