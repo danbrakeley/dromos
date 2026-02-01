@@ -69,6 +69,12 @@ cargo fmt            # Format code
 
 ## TODO
 
+- more metadata (optional):
+  - source (url)
+  - version
+  - date
+  - tags
+  - description
 - colorized output
 - build requires a starting rom; should we support storing that in the database?
 
