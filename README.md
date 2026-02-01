@@ -67,10 +67,12 @@ cargo fmt            # Format code
 
 ## TODO
 
+- add a build version (maybe linked to a git tag/commit?)
 - remove a link (with confirmation)
 - remove a node (with confirmation)
 - derive a rom file by using a starting rom file a db link
 - colorized output
+- unit tests: where are they and how robust are they?
 
 ## DONE
 

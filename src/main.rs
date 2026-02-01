@@ -1,7 +1,10 @@
 use std::process::ExitCode;
 
+use git_version::git_version;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+
+const VERSION: &str = git_version!(fallback = env!("CARGO_PKG_VERSION"));
 
 use dromos::cli::{Command, DromosHelper, ReplState};
 use dromos::config::StorageConfig;
@@ -33,8 +36,17 @@ fn run() -> dromos::Result<()> {
         let _ = rl.load_history(path);
     }
 
+    println!(r"     _                               ");
+    println!(r"  __| |_ __ ___  _ __ ___   ___  ___ ");
+    println!(r" / _` | '__/ _ \| '_ ` _ \ / _ \/ __|");
+    println!(r"| (_| | | | (_) | | | | | | (_) \__ \");
+    println!(r" \__,_|_|  \___/|_| |_| |_|\___/|___/  {VERSION}");
+    println!(r"");
+    println!("  - type a command, e.g. \"help\" or \"exit\"");
+    println!("  - press tab for autocomplete, and up/down for history");
+
     loop {
-        match rl.readline("dromos> ") {
+        match rl.readline("\ncmd> ") {
             Ok(line) => {
                 let _ = rl.add_history_entry(&line);
 
