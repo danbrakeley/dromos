@@ -1,9 +1,9 @@
 use std::process::ExitCode;
 
 use rustyline::error::ReadlineError;
-use rustyline::DefaultEditor;
+use rustyline::Editor;
 
-use dromos::cli::{Command, ReplState};
+use dromos::cli::{Command, DromosHelper, ReplState};
 use dromos::config::StorageConfig;
 
 fn main() -> ExitCode {
@@ -24,7 +24,8 @@ fn run() -> dromos::Result<()> {
     })?;
 
     let mut state = ReplState::new(config)?;
-    let mut rl = DefaultEditor::new().expect("Failed to initialize readline");
+    let mut rl = Editor::new().expect("Failed to initialize readline");
+    rl.set_helper(Some(DromosHelper::new()));
 
     // Try to load history (ignore errors)
     let history_path = dirs_history_path();

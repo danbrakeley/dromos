@@ -66,12 +66,14 @@ cargo fmt            # Format code
 
 ## TODO
 
-- re-create a rom by using a starting rom and a diff in a link in the db
-- file/folder autocomplete
+- remove a link (with confirmation)
+- remove a node (with confirmation)
+- derive a rom file by using a starting rom file a db link
 - colorized output
 
 ## DONE
 
+- Tab completion for commands and file paths
 - Interactive REPL with command history
 - Add and link ROMs with bidirectional diffs
 - Search ROMs by title

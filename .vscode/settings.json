@@ -30,6 +30,7 @@
     "reimplementation",
     "reimplementations",
     "rusqlite",
+    "rustyline",
     "thiserror",
     "walkdir",
     "xdelta"
