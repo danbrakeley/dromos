@@ -1,7 +1,40 @@
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::error::{DromosError, Result};
 use crate::rom::{Mirroring, NesHeader, RomMetadata, RomType, format_hash};
+
+/// Map a database row to NodeRow. Expects columns in order:
+/// id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size,
+/// has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper
+fn map_row_to_node_row(row: &Row) -> rusqlite::Result<NodeRow> {
+    let hash_str: String = row.get(1)?;
+    let sha256 = hex::decode(&hash_str)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .unwrap_or([0u8; 32]);
+    let title: Option<String> = row.get(3)?;
+    let rom_type_str: String = row.get(4)?;
+    let rom_type = rom_type_str.parse().unwrap_or(RomType::Nes);
+    let filename: Option<String> = row.get(2)?;
+
+    Ok(NodeRow {
+        id: row.get(0)?,
+        sha256,
+        title: title.unwrap_or_else(|| filename.clone().unwrap_or_default()),
+        filename,
+        rom_type,
+        prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
+        chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
+        has_trainer: row.get(7)?,
+        mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
+        mirroring: row
+            .get::<_, Option<i64>>(9)?
+            .map(|m| Mirroring::from(m as u8)),
+        has_battery: row.get(10)?,
+        is_nes2: row.get(11)?,
+        submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct NodeRow {
@@ -147,33 +180,7 @@ impl<'a> Repository<'a> {
                 "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper
                  FROM nodes WHERE sha256 = ?1",
                 params![hash_hex],
-                |row| {
-                    let hash_str: String = row.get(1)?;
-                    let sha256 = hex::decode(&hash_str)
-                        .ok()
-                        .and_then(|b| b.try_into().ok())
-                        .unwrap_or([0u8; 32]);
-                    let title: Option<String> = row.get(3)?;
-                    let rom_type_str: String = row.get(4)?;
-                    let rom_type = rom_type_str.parse().unwrap_or(RomType::Nes);
-                    let filename: Option<String> = row.get(2)?;
-
-                    Ok(NodeRow {
-                        id: row.get(0)?,
-                        sha256,
-                        title: title.unwrap_or_else(|| filename.clone().unwrap_or_default()),
-                        filename,
-                        rom_type,
-                        prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
-                        chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
-                        has_trainer: row.get(7)?,
-                        mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
-                        mirroring: row.get::<_, Option<i64>>(9)?.map(|m| Mirroring::from(m as u8)),
-                        has_battery: row.get(10)?,
-                        is_nes2: row.get(11)?,
-                        submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
-                    })
-                },
+                map_row_to_node_row,
             )
             .optional()?;
 
@@ -187,33 +194,7 @@ impl<'a> Repository<'a> {
                 "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper
                  FROM nodes WHERE id = ?1",
                 params![id],
-                |row| {
-                    let hash_str: String = row.get(1)?;
-                    let sha256 = hex::decode(&hash_str)
-                        .ok()
-                        .and_then(|b| b.try_into().ok())
-                        .unwrap_or([0u8; 32]);
-                    let title: Option<String> = row.get(3)?;
-                    let rom_type_str: String = row.get(4)?;
-                    let rom_type = rom_type_str.parse().unwrap_or(RomType::Nes);
-                    let filename: Option<String> = row.get(2)?;
-
-                    Ok(NodeRow {
-                        id: row.get(0)?,
-                        sha256,
-                        title: title.unwrap_or_else(|| filename.clone().unwrap_or_default()),
-                        filename,
-                        rom_type,
-                        prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
-                        chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
-                        has_trainer: row.get(7)?,
-                        mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
-                        mirroring: row.get::<_, Option<i64>>(9)?.map(|m| Mirroring::from(m as u8)),
-                        has_battery: row.get(10)?,
-                        is_nes2: row.get(11)?,
-                        submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
-                    })
-                },
+                map_row_to_node_row,
             )
             .optional()?;
 
@@ -226,35 +207,7 @@ impl<'a> Repository<'a> {
              FROM nodes ORDER BY id",
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            let hash_str: String = row.get(1)?;
-            let sha256 = hex::decode(&hash_str)
-                .ok()
-                .and_then(|b| b.try_into().ok())
-                .unwrap_or([0u8; 32]);
-            let title: Option<String> = row.get(3)?;
-            let rom_type_str: String = row.get(4)?;
-            let rom_type = rom_type_str.parse().unwrap_or(RomType::Nes);
-            let filename: Option<String> = row.get(2)?;
-
-            Ok(NodeRow {
-                id: row.get(0)?,
-                sha256,
-                title: title.unwrap_or_else(|| filename.clone().unwrap_or_default()),
-                filename,
-                rom_type,
-                prg_rom_size: row.get::<_, Option<i64>>(5)?.map(|s| s as usize),
-                chr_rom_size: row.get::<_, Option<i64>>(6)?.map(|s| s as usize),
-                has_trainer: row.get(7)?,
-                mapper: row.get::<_, Option<i64>>(8)?.map(|m| m as u16),
-                mirroring: row
-                    .get::<_, Option<i64>>(9)?
-                    .map(|m| Mirroring::from(m as u8)),
-                has_battery: row.get(10)?,
-                is_nes2: row.get(11)?,
-                submapper: row.get::<_, Option<i64>>(12)?.map(|s| s as u8),
-            })
-        })?;
+        let rows = stmt.query_map([], map_row_to_node_row)?;
 
         let mut nodes = Vec::new();
         for row in rows {
@@ -323,5 +276,266 @@ impl<'a> Repository<'a> {
             .execute("DELETE FROM nodes WHERE id = ?1", params![node_id])?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::run_migrations;
+
+    fn setup_test_db() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn
+    }
+
+    fn make_metadata(hash_byte: u8, filename: &str) -> RomMetadata {
+        let mut sha256 = [0u8; 32];
+        sha256[0] = hash_byte;
+        RomMetadata {
+            rom_type: RomType::Nes,
+            sha256,
+            filename: Some(filename.to_string()),
+            nes_header: Some(NesHeader {
+                prg_rom_size: 32 * 1024,
+                chr_rom_size: 8 * 1024,
+                has_trainer: false,
+                mapper: 4,
+                mirroring: Mirroring::Vertical,
+                has_battery: true,
+                is_nes2: false,
+                submapper: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn test_insert_node() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        let id = repo.insert_node(&metadata, "Test ROM").unwrap();
+
+        assert!(id > 0);
+    }
+
+    #[test]
+    fn test_insert_duplicate_node() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        repo.insert_node(&metadata, "Test ROM").unwrap();
+
+        // Second insert should fail
+        let result = repo.insert_node(&metadata, "Test ROM 2");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            DromosError::RomAlreadyExists { .. } => {}
+            e => panic!("Expected RomAlreadyExists, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_get_node_by_hash() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        repo.insert_node(&metadata, "Test ROM").unwrap();
+
+        let node = repo
+            .get_node_by_hash(&metadata.sha256)
+            .unwrap()
+            .expect("Node should exist");
+
+        assert_eq!(node.title, "Test ROM");
+        assert_eq!(node.sha256[0], 0xAA);
+        assert_eq!(node.rom_type, RomType::Nes);
+        assert_eq!(node.prg_rom_size, Some(32 * 1024));
+        assert_eq!(node.mapper, Some(4));
+    }
+
+    #[test]
+    fn test_get_node_by_hash_not_found() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let mut missing_hash = [0u8; 32];
+        missing_hash[0] = 0xFF;
+
+        let result = repo.get_node_by_hash(&missing_hash).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_node_by_id() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        let id = repo.insert_node(&metadata, "Test ROM").unwrap();
+
+        let node = repo.get_node_by_id(id).unwrap().expect("Node should exist");
+        assert_eq!(node.id, id);
+        assert_eq!(node.title, "Test ROM");
+    }
+
+    #[test]
+    fn test_insert_edge() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+
+        let id_a = repo.insert_node(&meta_a, "ROM A").unwrap();
+        let id_b = repo.insert_node(&meta_b, "ROM B").unwrap();
+
+        let edge_id = repo
+            .insert_edge(id_a, id_b, "a_to_b.bsdiff", 1234)
+            .unwrap();
+        assert!(edge_id > 0);
+    }
+
+    #[test]
+    fn test_insert_duplicate_edge() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+
+        let id_a = repo.insert_node(&meta_a, "ROM A").unwrap();
+        let id_b = repo.insert_node(&meta_b, "ROM B").unwrap();
+
+        repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1234).unwrap();
+
+        // Second insert should fail
+        let result = repo.insert_edge(id_a, id_b, "a_to_b_v2.bsdiff", 5678);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            DromosError::DiffAlreadyExists(_, _) => {}
+            e => panic!("Expected DiffAlreadyExists, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_load_all_nodes() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+
+        repo.insert_node(&meta_a, "ROM A").unwrap();
+        repo.insert_node(&meta_b, "ROM B").unwrap();
+
+        let nodes = repo.load_all_nodes().unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0].title, "ROM A");
+        assert_eq!(nodes[1].title, "ROM B");
+    }
+
+    #[test]
+    fn test_load_all_edges() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+
+        let id_a = repo.insert_node(&meta_a, "ROM A").unwrap();
+        let id_b = repo.insert_node(&meta_b, "ROM B").unwrap();
+
+        repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1000).unwrap();
+        repo.insert_edge(id_b, id_a, "b_to_a.bsdiff", 2000).unwrap();
+
+        let edges = repo.load_all_edges().unwrap();
+        assert_eq!(edges.len(), 2);
+        assert_eq!(edges[0].diff_path, "a_to_b.bsdiff");
+        assert_eq!(edges[1].diff_path, "b_to_a.bsdiff");
+    }
+
+    #[test]
+    fn test_delete_node_cascades_edges() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+        let meta_c = make_metadata(0xCC, "c.nes");
+
+        let id_a = repo.insert_node(&meta_a, "ROM A").unwrap();
+        let id_b = repo.insert_node(&meta_b, "ROM B").unwrap();
+        let id_c = repo.insert_node(&meta_c, "ROM C").unwrap();
+
+        repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1000).unwrap();
+        repo.insert_edge(id_b, id_a, "b_to_a.bsdiff", 1000).unwrap();
+        repo.insert_edge(id_b, id_c, "b_to_c.bsdiff", 1000).unwrap();
+
+        // Delete node B
+        repo.delete_node(id_b).unwrap();
+
+        // Node B should be gone
+        assert!(repo.get_node_by_id(id_b).unwrap().is_none());
+
+        // All edges involving B should be gone
+        let edges = repo.load_all_edges().unwrap();
+        assert!(edges.is_empty());
+
+        // Nodes A and C should still exist
+        assert!(repo.get_node_by_id(id_a).unwrap().is_some());
+        assert!(repo.get_node_by_id(id_c).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_get_edges_for_node() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+        let meta_c = make_metadata(0xCC, "c.nes");
+
+        let id_a = repo.insert_node(&meta_a, "ROM A").unwrap();
+        let id_b = repo.insert_node(&meta_b, "ROM B").unwrap();
+        let id_c = repo.insert_node(&meta_c, "ROM C").unwrap();
+
+        repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1000).unwrap();
+        repo.insert_edge(id_b, id_a, "b_to_a.bsdiff", 1000).unwrap();
+        repo.insert_edge(id_b, id_c, "b_to_c.bsdiff", 1000).unwrap();
+        repo.insert_edge(id_c, id_b, "c_to_b.bsdiff", 1000).unwrap();
+
+        // Get edges for node B (should include all 4)
+        let edges_b = repo.get_edges_for_node(id_b).unwrap();
+        assert_eq!(edges_b.len(), 4);
+
+        // Get edges for node A (should include 2: a_to_b and b_to_a)
+        let edges_a = repo.get_edges_for_node(id_a).unwrap();
+        assert_eq!(edges_a.len(), 2);
+    }
+
+    #[test]
+    fn test_node_row_to_nes_header() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        repo.insert_node(&metadata, "Test ROM").unwrap();
+
+        let node = repo
+            .get_node_by_hash(&metadata.sha256)
+            .unwrap()
+            .expect("Node should exist");
+
+        let header = node.to_nes_header().expect("Should convert to header");
+        assert_eq!(header.prg_rom_size, 32 * 1024);
+        assert_eq!(header.chr_rom_size, 8 * 1024);
+        assert_eq!(header.mapper, 4);
+        assert_eq!(header.mirroring, Mirroring::Vertical);
+        assert!(header.has_battery);
     }
 }

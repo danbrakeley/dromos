@@ -69,14 +69,18 @@ cargo fmt            # Format code
 
 ## TODO
 
-- should we re-organize so that "root" nodes have their original roms stored in the database?
-  - or nodes can optionally have the actual rom stored in the database.
-  - nodes will also need metadata for headers that aren't included in the diffs
 - colorized output
-- unit tests: where are they and how robust are they?
+- build requires a starting rom; should we support storing that in the database?
 
 ## DONE
 
+- Comprehensive unit test suite (65 tests) covering:
+  - Graph operations (`RomGraph` node/edge manipulation, BFS pathfinding)
+  - NES header parsing and reconstruction
+  - Database repository operations (CRUD, cascading deletes)
+  - Storage manager integration
+  - Binary diff creation and application
+  - Hash functions and type conversions
 - Build a ROM from source file to target hash using `build` command with BFS pathfinding
 - Remove a ROM node and all its links with `rm` command (with confirmation)
 - Show link counts in list, view links for a ROM with `links` command

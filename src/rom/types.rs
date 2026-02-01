@@ -75,3 +75,53 @@ pub struct RomMetadata {
     pub filename: Option<String>,
     pub nes_header: Option<NesHeader>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mirroring_from_u8() {
+        assert_eq!(Mirroring::from(0), Mirroring::Horizontal);
+        assert_eq!(Mirroring::from(1), Mirroring::Vertical);
+        assert_eq!(Mirroring::from(2), Mirroring::FourScreen);
+        // Unknown values default to Horizontal
+        assert_eq!(Mirroring::from(99), Mirroring::Horizontal);
+        assert_eq!(Mirroring::from(255), Mirroring::Horizontal);
+    }
+
+    #[test]
+    fn test_mirroring_to_u8() {
+        assert_eq!(u8::from(Mirroring::Horizontal), 0);
+        assert_eq!(u8::from(Mirroring::Vertical), 1);
+        assert_eq!(u8::from(Mirroring::FourScreen), 2);
+    }
+
+    #[test]
+    fn test_rom_type_from_str() {
+        assert_eq!("nes".parse::<RomType>(), Ok(RomType::Nes));
+        assert_eq!("NES".parse::<RomType>(), Ok(RomType::Nes));
+        assert_eq!("Nes".parse::<RomType>(), Ok(RomType::Nes));
+        assert_eq!("nEs".parse::<RomType>(), Ok(RomType::Nes));
+        assert!("snes".parse::<RomType>().is_err());
+        assert!("".parse::<RomType>().is_err());
+    }
+
+    #[test]
+    fn test_rom_type_display() {
+        assert_eq!(format!("{}", RomType::Nes), "NES");
+    }
+
+    #[test]
+    fn test_rom_type_as_str() {
+        assert_eq!(RomType::Nes.as_str(), "NES");
+    }
+
+    #[test]
+    fn test_rom_type_round_trip() {
+        let original = RomType::Nes;
+        let as_str = original.as_str();
+        let parsed: RomType = as_str.parse().unwrap();
+        assert_eq!(original, parsed);
+    }
+}

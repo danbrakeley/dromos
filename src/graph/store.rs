@@ -178,3 +178,192 @@ impl Default for RomGraph {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_node(db_id: i64, hash_byte: u8, title: &str) -> RomNode {
+        let mut sha256 = [0u8; 32];
+        sha256[0] = hash_byte;
+        RomNode {
+            db_id,
+            sha256,
+            filename: Some(format!("{}.nes", title)),
+            title: title.to_string(),
+            rom_type: RomType::Nes,
+        }
+    }
+
+    fn make_edge(db_id: i64, diff_path: &str) -> DiffEdge {
+        DiffEdge {
+            db_id,
+            diff_path: diff_path.to_string(),
+            diff_size: 100,
+        }
+    }
+
+    #[test]
+    fn test_add_node() {
+        let mut graph = RomGraph::new();
+        let node = make_node(1, 0xAA, "Test ROM");
+        let idx = graph.add_node(node.clone());
+
+        assert_eq!(graph.node_count(), 1);
+        let retrieved = graph.get_node(idx).unwrap();
+        assert_eq!(retrieved.db_id, 1);
+        assert_eq!(retrieved.title, "Test ROM");
+        assert_eq!(retrieved.sha256[0], 0xAA);
+    }
+
+    #[test]
+    fn test_add_edge() {
+        let mut graph = RomGraph::new();
+        let node_a = make_node(1, 0xAA, "ROM A");
+        let node_b = make_node(2, 0xBB, "ROM B");
+
+        let idx_a = graph.add_node(node_a);
+        let idx_b = graph.add_node(node_b);
+
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.outgoing_edge_count(idx_a), 1);
+        assert_eq!(graph.outgoing_edge_count(idx_b), 0);
+    }
+
+    #[test]
+    fn test_get_node_by_hash() {
+        let mut graph = RomGraph::new();
+        let node = make_node(1, 0xAA, "Test ROM");
+        let sha256 = node.sha256;
+        graph.add_node(node);
+
+        let idx = graph.get_node_by_hash(&sha256);
+        assert!(idx.is_some());
+
+        let mut missing_hash = [0u8; 32];
+        missing_hash[0] = 0xFF;
+        assert!(graph.get_node_by_hash(&missing_hash).is_none());
+    }
+
+    #[test]
+    fn test_get_node_by_db_id() {
+        let mut graph = RomGraph::new();
+        let node = make_node(42, 0xAA, "Test ROM");
+        graph.add_node(node);
+
+        let idx = graph.get_node_by_db_id(42);
+        assert!(idx.is_some());
+
+        assert!(graph.get_node_by_db_id(999).is_none());
+    }
+
+    #[test]
+    fn test_find_path_direct() {
+        let mut graph = RomGraph::new();
+        let node_a = make_node(1, 0xAA, "ROM A");
+        let node_b = make_node(2, 0xBB, "ROM B");
+
+        let idx_a = graph.add_node(node_a);
+        let idx_b = graph.add_node(node_b);
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+
+        let path = graph.find_path(idx_a, idx_b).expect("Path should exist");
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0].node_idx, idx_a);
+        assert!(path[0].edge.is_none());
+        assert_eq!(path[1].node_idx, idx_b);
+        assert!(path[1].edge.is_some());
+        assert_eq!(path[1].edge.as_ref().unwrap().diff_path, "a_to_b.bsdiff");
+    }
+
+    #[test]
+    fn test_find_path_multi_hop() {
+        let mut graph = RomGraph::new();
+        let node_a = make_node(1, 0xAA, "ROM A");
+        let node_b = make_node(2, 0xBB, "ROM B");
+        let node_c = make_node(3, 0xCC, "ROM C");
+
+        let idx_a = graph.add_node(node_a);
+        let idx_b = graph.add_node(node_b);
+        let idx_c = graph.add_node(node_c);
+
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+        graph.add_edge(idx_b, idx_c, make_edge(2, "b_to_c.bsdiff"));
+
+        let path = graph.find_path(idx_a, idx_c).expect("Path should exist");
+        assert_eq!(path.len(), 3);
+        assert_eq!(path[0].node_idx, idx_a);
+        assert_eq!(path[1].node_idx, idx_b);
+        assert_eq!(path[2].node_idx, idx_c);
+    }
+
+    #[test]
+    fn test_find_path_no_route() {
+        let mut graph = RomGraph::new();
+        let node_a = make_node(1, 0xAA, "ROM A");
+        let node_b = make_node(2, 0xBB, "ROM B");
+
+        let idx_a = graph.add_node(node_a);
+        let idx_b = graph.add_node(node_b);
+        // No edge between them
+
+        let path = graph.find_path(idx_a, idx_b);
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_find_path_same_node() {
+        let mut graph = RomGraph::new();
+        let node = make_node(1, 0xAA, "ROM A");
+        let idx = graph.add_node(node);
+
+        let path = graph.find_path(idx, idx).expect("Path should exist");
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0].node_idx, idx);
+        assert!(path[0].edge.is_none());
+    }
+
+    #[test]
+    fn test_remove_node() {
+        let mut graph = RomGraph::new();
+        let node = make_node(1, 0xAA, "ROM A");
+        let sha256 = node.sha256;
+        let idx = graph.add_node(node);
+
+        assert_eq!(graph.node_count(), 1);
+        assert!(graph.get_node_by_hash(&sha256).is_some());
+        assert!(graph.get_node_by_db_id(1).is_some());
+
+        let removed = graph.remove_node(idx);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().title, "ROM A");
+
+        assert_eq!(graph.node_count(), 0);
+        assert!(graph.get_node_by_hash(&sha256).is_none());
+        assert!(graph.get_node_by_db_id(1).is_none());
+    }
+
+    #[test]
+    fn test_neighbors() {
+        let mut graph = RomGraph::new();
+        let node_a = make_node(1, 0xAA, "ROM A");
+        let node_b = make_node(2, 0xBB, "ROM B");
+        let node_c = make_node(3, 0xCC, "ROM C");
+
+        let idx_a = graph.add_node(node_a);
+        let idx_b = graph.add_node(node_b);
+        let idx_c = graph.add_node(node_c);
+
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+        graph.add_edge(idx_a, idx_c, make_edge(2, "a_to_c.bsdiff"));
+
+        let neighbors = graph.neighbors(idx_a);
+        assert_eq!(neighbors.len(), 2);
+
+        let titles: Vec<&str> = neighbors.iter().map(|(n, _)| n.title.as_str()).collect();
+        assert!(titles.contains(&"ROM B"));
+        assert!(titles.contains(&"ROM C"));
+    }
+}

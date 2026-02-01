@@ -338,3 +338,259 @@ impl StorageManager {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rom::{Mirroring, NesHeader, RomMetadata, RomType};
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+
+    impl StorageManager {
+        /// Create a StorageManager with in-memory database for testing
+        pub fn new_in_memory(temp_dir: &Path) -> Result<Self> {
+            let config = StorageConfig {
+                db_path: PathBuf::from(":memory:"),
+                diffs_dir: temp_dir.join("diffs"),
+            };
+            config.ensure_dirs_exist()?;
+
+            let mut conn = Connection::open_in_memory()?;
+            run_migrations(&mut conn)?;
+
+            Ok(StorageManager {
+                conn,
+                graph: RomGraph::new(),
+                config,
+            })
+        }
+
+        /// Add a node directly from metadata (bypassing file I/O) for testing
+        pub fn add_node_from_metadata(
+            &mut self,
+            metadata: &RomMetadata,
+            title: &str,
+        ) -> Result<()> {
+            let repo = Repository::new(&self.conn);
+            let db_id = repo.insert_node(metadata, title)?;
+
+            self.graph.add_node(RomNode {
+                db_id,
+                sha256: metadata.sha256,
+                filename: metadata.filename.clone(),
+                title: title.to_string(),
+                rom_type: metadata.rom_type,
+            });
+
+            Ok(())
+        }
+    }
+
+    fn make_metadata(hash_byte: u8, filename: &str) -> RomMetadata {
+        let mut sha256 = [0u8; 32];
+        sha256[0] = hash_byte;
+        RomMetadata {
+            rom_type: RomType::Nes,
+            sha256,
+            filename: Some(filename.to_string()),
+            nes_header: Some(NesHeader {
+                prg_rom_size: 32 * 1024,
+                chr_rom_size: 8 * 1024,
+                has_trainer: false,
+                mapper: 4,
+                mirroring: Mirroring::Vertical,
+                has_battery: true,
+                is_nes2: false,
+                submapper: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn test_add_node_and_retrieve() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        manager
+            .add_node_from_metadata(&metadata, "Test ROM")
+            .unwrap();
+
+        let node = manager
+            .get_node_by_hash(&metadata.sha256)
+            .expect("Node should exist");
+        assert_eq!(node.title, "Test ROM");
+        assert_eq!(node.sha256[0], 0xAA);
+    }
+
+    #[test]
+    fn test_node_exists() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let metadata = make_metadata(0xAA, "test.nes");
+
+        assert!(!manager.node_exists(&metadata.sha256));
+
+        manager
+            .add_node_from_metadata(&metadata, "Test ROM")
+            .unwrap();
+
+        assert!(manager.node_exists(&metadata.sha256));
+    }
+
+    #[test]
+    fn test_find_node_by_hash_prefix() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let metadata = make_metadata(0xAB, "test.nes");
+        manager
+            .add_node_from_metadata(&metadata, "Test ROM")
+            .unwrap();
+
+        // Find by prefix "ab" (first byte is 0xAB)
+        let node = manager
+            .find_node_by_hash_prefix("ab")
+            .expect("Should find by prefix");
+        assert_eq!(node.title, "Test ROM");
+
+        // Should not find with wrong prefix
+        assert!(manager.find_node_by_hash_prefix("cd").is_none());
+    }
+
+    #[test]
+    fn test_link_count() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+
+        manager.add_node_from_metadata(&meta_a, "ROM A").unwrap();
+        manager.add_node_from_metadata(&meta_b, "ROM B").unwrap();
+
+        // Initially no links
+        assert_eq!(manager.link_count(&meta_a.sha256), 0);
+
+        // Manually add edge to the graph (bypassing file creation)
+        let idx_a = manager.graph.get_node_by_hash(&meta_a.sha256).unwrap();
+        let idx_b = manager.graph.get_node_by_hash(&meta_b.sha256).unwrap();
+        manager.graph.add_edge(
+            idx_a,
+            idx_b,
+            DiffEdge {
+                db_id: 1,
+                diff_path: "a_to_b.bsdiff".to_string(),
+                diff_size: 100,
+            },
+        );
+
+        assert_eq!(manager.link_count(&meta_a.sha256), 1);
+        assert_eq!(manager.link_count(&meta_b.sha256), 0); // outgoing only
+    }
+
+    #[test]
+    fn test_get_neighbors() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+        let meta_c = make_metadata(0xCC, "c.nes");
+
+        manager.add_node_from_metadata(&meta_a, "ROM A").unwrap();
+        manager.add_node_from_metadata(&meta_b, "ROM B").unwrap();
+        manager.add_node_from_metadata(&meta_c, "ROM C").unwrap();
+
+        let idx_a = manager.graph.get_node_by_hash(&meta_a.sha256).unwrap();
+        let idx_b = manager.graph.get_node_by_hash(&meta_b.sha256).unwrap();
+        let idx_c = manager.graph.get_node_by_hash(&meta_c.sha256).unwrap();
+
+        manager.graph.add_edge(
+            idx_a,
+            idx_b,
+            DiffEdge {
+                db_id: 1,
+                diff_path: "a_to_b.bsdiff".to_string(),
+                diff_size: 100,
+            },
+        );
+        manager.graph.add_edge(
+            idx_a,
+            idx_c,
+            DiffEdge {
+                db_id: 2,
+                diff_path: "a_to_c.bsdiff".to_string(),
+                diff_size: 200,
+            },
+        );
+
+        let neighbors = manager
+            .get_neighbors(&meta_a.sha256)
+            .expect("Should have neighbors");
+        assert_eq!(neighbors.len(), 2);
+
+        let titles: Vec<&str> = neighbors.iter().map(|(n, _)| n.title.as_str()).collect();
+        assert!(titles.contains(&"ROM B"));
+        assert!(titles.contains(&"ROM C"));
+    }
+
+    #[test]
+    fn test_list() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+
+        manager.add_node_from_metadata(&meta_a, "ROM A").unwrap();
+        manager.add_node_from_metadata(&meta_b, "ROM B").unwrap();
+
+        let (nodes, edges) = manager.list();
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(edges.len(), 0);
+    }
+
+    #[test]
+    fn test_find_path() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let meta_a = make_metadata(0xAA, "a.nes");
+        let meta_b = make_metadata(0xBB, "b.nes");
+        let meta_c = make_metadata(0xCC, "c.nes");
+
+        manager.add_node_from_metadata(&meta_a, "ROM A").unwrap();
+        manager.add_node_from_metadata(&meta_b, "ROM B").unwrap();
+        manager.add_node_from_metadata(&meta_c, "ROM C").unwrap();
+
+        let idx_a = manager.graph.get_node_by_hash(&meta_a.sha256).unwrap();
+        let idx_b = manager.graph.get_node_by_hash(&meta_b.sha256).unwrap();
+        let idx_c = manager.graph.get_node_by_hash(&meta_c.sha256).unwrap();
+
+        manager.graph.add_edge(
+            idx_a,
+            idx_b,
+            DiffEdge {
+                db_id: 1,
+                diff_path: "a_to_b.bsdiff".to_string(),
+                diff_size: 100,
+            },
+        );
+        manager.graph.add_edge(
+            idx_b,
+            idx_c,
+            DiffEdge {
+                db_id: 2,
+                diff_path: "b_to_c.bsdiff".to_string(),
+                diff_size: 100,
+            },
+        );
+
+        let path = manager
+            .find_path(&meta_a.sha256, &meta_c.sha256)
+            .expect("Path should exist");
+        assert_eq!(path.len(), 3); // A -> B -> C
+    }
+}

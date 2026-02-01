@@ -1,16 +1,14 @@
-use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 
 use crate::error::Result;
 use crate::rom::types::{Mirroring, NesHeader};
 
-pub fn parse_nes_header(reader: &mut BufReader<File>) -> Result<Option<NesHeader>> {
-    let mut header = [0u8; 16];
-    reader.read_exact(&mut header)?;
-
+/// Parse a 16-byte iNES/NES 2.0 header from raw bytes.
+/// Returns None if the magic bytes are invalid.
+pub fn parse_nes_header_bytes(header: &[u8; 16]) -> Option<NesHeader> {
     // Check for "NES\x1A" magic bytes
     if &header[0..4] != b"NES\x1a" {
-        return Ok(None);
+        return None;
     }
 
     let flags6 = header[6];
@@ -48,7 +46,7 @@ pub fn parse_nes_header(reader: &mut BufReader<File>) -> Result<Option<NesHeader
         None
     };
 
-    Ok(Some(NesHeader {
+    Some(NesHeader {
         prg_rom_size,
         chr_rom_size,
         has_trainer,
@@ -57,7 +55,14 @@ pub fn parse_nes_header(reader: &mut BufReader<File>) -> Result<Option<NesHeader
         has_battery,
         is_nes2,
         submapper,
-    }))
+    })
+}
+
+/// Parse NES header from a reader. Thin I/O wrapper around parse_nes_header_bytes.
+pub fn parse_nes_header(reader: &mut impl Read) -> Result<Option<NesHeader>> {
+    let mut header = [0u8; 16];
+    reader.read_exact(&mut header)?;
+    Ok(parse_nes_header_bytes(&header))
 }
 
 /// Build a 16-byte iNES/NES 2.0 header from stored metadata.
@@ -109,7 +114,7 @@ pub fn build_nes_header(header: &NesHeader) -> [u8; 16] {
     bytes
 }
 
-pub fn skip_trainer_if_present(reader: &mut BufReader<File>, header: &NesHeader) -> Result<()> {
+pub fn skip_trainer_if_present(reader: &mut (impl Read + Seek), header: &NesHeader) -> Result<()> {
     if header.has_trainer {
         reader.seek(SeekFrom::Current(512))?;
     }
@@ -125,4 +130,250 @@ pub fn reconstruct_nes_file(header: &NesHeader, rom_bytes: &[u8]) -> Vec<u8> {
     file.extend_from_slice(&header_bytes);
     file.extend_from_slice(rom_bytes);
     file
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    /// Create a minimal valid iNES 1.0 header
+    fn make_ines_header(prg_banks: u8, chr_banks: u8, flags6: u8, flags7: u8) -> [u8; 16] {
+        let mut header = [0u8; 16];
+        header[0] = b'N';
+        header[1] = b'E';
+        header[2] = b'S';
+        header[3] = 0x1A;
+        header[4] = prg_banks;
+        header[5] = chr_banks;
+        header[6] = flags6;
+        header[7] = flags7;
+        header
+    }
+
+    #[test]
+    fn test_parse_valid_ines_header() {
+        // 2 PRG banks (32KB), 1 CHR bank (8KB), mapper 0, horizontal mirroring
+        let header = make_ines_header(2, 1, 0x00, 0x00);
+        let parsed = parse_nes_header_bytes(&header).expect("Should parse valid header");
+
+        assert_eq!(parsed.prg_rom_size, 32 * 1024);
+        assert_eq!(parsed.chr_rom_size, 8 * 1024);
+        assert_eq!(parsed.mapper, 0);
+        assert_eq!(parsed.mirroring, Mirroring::Horizontal);
+        assert!(!parsed.has_trainer);
+        assert!(!parsed.has_battery);
+        assert!(!parsed.is_nes2);
+        assert!(parsed.submapper.is_none());
+    }
+
+    #[test]
+    fn test_parse_nes2_header() {
+        // NES 2.0 header: flags7 bits 2-3 = 0b10
+        let mut header = make_ines_header(2, 1, 0x10, 0x08); // mapper 1, NES 2.0 flag
+        header[8] = 0x52; // submapper 5, extended mapper bits 2
+
+        let parsed = parse_nes_header_bytes(&header).expect("Should parse NES 2.0 header");
+
+        assert!(parsed.is_nes2);
+        assert_eq!(parsed.submapper, Some(5));
+        // Mapper = 1 (from flags6/7) | (2 << 8) = 513
+        assert_eq!(parsed.mapper, 0x201);
+    }
+
+    #[test]
+    fn test_parse_invalid_magic() {
+        let mut header = [0u8; 16];
+        header[0] = b'N';
+        header[1] = b'E';
+        header[2] = b'S';
+        header[3] = 0x00; // Invalid - should be 0x1A
+
+        let parsed = parse_nes_header_bytes(&header);
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_parse_trainer_flag() {
+        // flags6 bit 2 = trainer present
+        let header = make_ines_header(1, 0, 0x04, 0x00);
+        let parsed = parse_nes_header_bytes(&header).expect("Should parse");
+
+        assert!(parsed.has_trainer);
+    }
+
+    #[test]
+    fn test_parse_mirroring_modes() {
+        // Horizontal (default)
+        let header_h = make_ines_header(1, 0, 0x00, 0x00);
+        assert_eq!(
+            parse_nes_header_bytes(&header_h).unwrap().mirroring,
+            Mirroring::Horizontal
+        );
+
+        // Vertical (bit 0 set)
+        let header_v = make_ines_header(1, 0, 0x01, 0x00);
+        assert_eq!(
+            parse_nes_header_bytes(&header_v).unwrap().mirroring,
+            Mirroring::Vertical
+        );
+
+        // Four-screen (bit 3 set, takes precedence)
+        let header_4 = make_ines_header(1, 0, 0x08, 0x00);
+        assert_eq!(
+            parse_nes_header_bytes(&header_4).unwrap().mirroring,
+            Mirroring::FourScreen
+        );
+    }
+
+    #[test]
+    fn test_parse_battery_flag() {
+        // flags6 bit 1 = battery-backed RAM
+        let header = make_ines_header(1, 0, 0x02, 0x00);
+        let parsed = parse_nes_header_bytes(&header).expect("Should parse");
+
+        assert!(parsed.has_battery);
+    }
+
+    #[test]
+    fn test_parse_mapper_number() {
+        // Mapper 4 (MMC3): low nibble in flags6 bits 4-7, high nibble in flags7 bits 4-7
+        // Mapper 4 = 0x04, so flags6 = 0x40, flags7 = 0x00
+        let header = make_ines_header(1, 0, 0x40, 0x00);
+        assert_eq!(parse_nes_header_bytes(&header).unwrap().mapper, 4);
+
+        // Mapper 69 (Sunsoft FME-7): 0x45 = flags6 = 0x50, flags7 = 0x40
+        let header2 = make_ines_header(1, 0, 0x50, 0x40);
+        assert_eq!(parse_nes_header_bytes(&header2).unwrap().mapper, 69);
+    }
+
+    #[test]
+    fn test_build_header_round_trip() {
+        let original = NesHeader {
+            prg_rom_size: 32 * 1024,
+            chr_rom_size: 8 * 1024,
+            has_trainer: false,
+            mapper: 4,
+            mirroring: Mirroring::Vertical,
+            has_battery: true,
+            is_nes2: false,
+            submapper: None,
+        };
+
+        let bytes = build_nes_header(&original);
+        let parsed = parse_nes_header_bytes(&bytes).expect("Should parse built header");
+
+        assert_eq!(parsed.prg_rom_size, original.prg_rom_size);
+        assert_eq!(parsed.chr_rom_size, original.chr_rom_size);
+        assert_eq!(parsed.mapper, original.mapper);
+        assert_eq!(parsed.mirroring, original.mirroring);
+        assert_eq!(parsed.has_battery, original.has_battery);
+        assert!(!parsed.has_trainer); // Always cleared
+    }
+
+    #[test]
+    fn test_build_header_clears_trainer() {
+        let original = NesHeader {
+            prg_rom_size: 16 * 1024,
+            chr_rom_size: 0,
+            has_trainer: true, // Original had trainer
+            mapper: 0,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+            is_nes2: false,
+            submapper: None,
+        };
+
+        let bytes = build_nes_header(&original);
+        let parsed = parse_nes_header_bytes(&bytes).expect("Should parse");
+
+        // Trainer flag should be cleared
+        assert!(!parsed.has_trainer);
+    }
+
+    #[test]
+    fn test_build_header_nes2_round_trip() {
+        let original = NesHeader {
+            prg_rom_size: 64 * 1024,
+            chr_rom_size: 16 * 1024,
+            has_trainer: false,
+            mapper: 0x105, // Extended mapper number
+            mirroring: Mirroring::FourScreen,
+            has_battery: true,
+            is_nes2: true,
+            submapper: Some(3),
+        };
+
+        let bytes = build_nes_header(&original);
+        let parsed = parse_nes_header_bytes(&bytes).expect("Should parse NES 2.0 header");
+
+        assert_eq!(parsed.mapper, original.mapper);
+        assert!(parsed.is_nes2);
+        assert_eq!(parsed.submapper, Some(3));
+    }
+
+    #[test]
+    fn test_reconstruct_nes_file() {
+        let header = NesHeader {
+            prg_rom_size: 16 * 1024,
+            chr_rom_size: 8 * 1024,
+            has_trainer: false,
+            mapper: 0,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+            is_nes2: false,
+            submapper: None,
+        };
+
+        let rom_bytes = vec![0xAA; 24 * 1024]; // PRG + CHR
+        let file = reconstruct_nes_file(&header, &rom_bytes);
+
+        assert_eq!(file.len(), 16 + rom_bytes.len());
+        assert_eq!(&file[0..4], b"NES\x1a");
+        assert_eq!(&file[16..], rom_bytes.as_slice());
+    }
+
+    #[test]
+    fn test_parse_nes_header_from_reader() {
+        let header_bytes = make_ines_header(2, 1, 0x00, 0x00);
+        let mut cursor = Cursor::new(header_bytes);
+
+        let parsed = parse_nes_header(&mut cursor)
+            .expect("Should not error")
+            .expect("Should parse valid header");
+
+        assert_eq!(parsed.prg_rom_size, 32 * 1024);
+    }
+
+    #[test]
+    fn test_skip_trainer_if_present() {
+        let header_with_trainer = NesHeader {
+            prg_rom_size: 16 * 1024,
+            chr_rom_size: 0,
+            has_trainer: true,
+            mapper: 0,
+            mirroring: Mirroring::Horizontal,
+            has_battery: false,
+            is_nes2: false,
+            submapper: None,
+        };
+
+        let header_without_trainer = NesHeader {
+            has_trainer: false,
+            ..header_with_trainer.clone()
+        };
+
+        // Create a cursor with some data
+        let data = vec![0u8; 1024];
+        let mut cursor = Cursor::new(data);
+
+        // Skip trainer when present
+        skip_trainer_if_present(&mut cursor, &header_with_trainer).unwrap();
+        assert_eq!(cursor.position(), 512);
+
+        // Reset and try without trainer
+        cursor.set_position(0);
+        skip_trainer_if_present(&mut cursor, &header_without_trainer).unwrap();
+        assert_eq!(cursor.position(), 0);
+    }
 }
