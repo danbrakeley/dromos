@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RomType {
@@ -13,17 +14,21 @@ impl fmt::Display for RomType {
     }
 }
 
+impl FromStr for RomType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "NES" => Ok(RomType::Nes),
+            _ => Err(()),
+        }
+    }
+}
+
 impl RomType {
     pub fn as_str(&self) -> &'static str {
         match self {
             RomType::Nes => "NES",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<RomType> {
-        match s.to_uppercase().as_str() {
-            "NES" => Some(RomType::Nes),
-            _ => None,
         }
     }
 }

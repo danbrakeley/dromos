@@ -8,6 +8,7 @@ pub struct RomNode {
     pub db_id: i64,
     pub sha256: [u8; 32],
     pub filename: Option<String>,
+    pub title: String,
     pub rom_type: RomType,
 }
 

@@ -1,56 +1,148 @@
-use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-#[derive(Parser)]
-#[command(name = "dromos")]
-#[command(about = "ROM image management through binary diffs")]
-pub struct Cli {
-    #[command(subcommand)]
-    pub command: Commands,
-}
-
-#[derive(Subcommand)]
-pub enum Commands {
-    /// Hash a ROM file and display its metadata
-    Hash {
-        /// Path to the ROM file
-        file: PathBuf,
-    },
-
-    /// Add a root ROM to the database
-    AddRoot {
-        /// Path to the ROM file
-        file: PathBuf,
-    },
-
-    /// Add a modified ROM as a child of an existing root
-    AddMod {
-        /// Root ROM identifier (SHA-256 hash or filename)
-        root: String,
-
-        /// Path to the modified ROM file
-        mod_file: PathBuf,
-    },
-
-    /// List all ROMs and their relationships
-    List,
-}
-
-/// Represents a reference to a root ROM, either by hash or file path
 #[derive(Debug, Clone)]
-pub enum RootRef {
-    Hash([u8; 32]),
-    File(PathBuf),
+pub enum Command {
+    Add { file: PathBuf },
+    Link { files: Vec<PathBuf> },
+    List,
+    Search { query: String },
+    Hash { file: PathBuf },
+    Help,
+    Quit,
 }
 
-impl RootRef {
-    pub fn parse(s: &str) -> RootRef {
-        // If it's a 64-character hex string, treat it as a hash
-        if s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()) {
-            if let Some(hash) = crate::rom::parse_hash(s) {
-                return RootRef::Hash(hash);
+impl Command {
+    /// Parse a command line into a Command.
+    /// Returns None if the line is empty or only whitespace.
+    /// Returns Some(Err) if the command is invalid.
+    pub fn parse(line: &str) -> Option<Result<Command, String>> {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+
+        let parts = parse_quoted_args(line);
+        if parts.is_empty() {
+            return None;
+        }
+
+        let cmd = parts[0].to_lowercase();
+        let args = &parts[1..];
+
+        Some(match cmd.as_str() {
+            "add" => {
+                if args.is_empty() {
+                    Err("Usage: add <file>".to_string())
+                } else {
+                    Ok(Command::Add {
+                        file: PathBuf::from(&args[0]),
+                    })
+                }
+            }
+            "link" => {
+                if args.is_empty() {
+                    Err("Usage: link <file1> [file2]".to_string())
+                } else {
+                    Ok(Command::Link {
+                        files: args.iter().map(PathBuf::from).collect(),
+                    })
+                }
+            }
+            "list" | "ls" => Ok(Command::List),
+            "search" => {
+                if args.is_empty() {
+                    Err("Usage: search <query>".to_string())
+                } else {
+                    Ok(Command::Search {
+                        query: args.join(" "),
+                    })
+                }
+            }
+            "hash" => {
+                if args.is_empty() {
+                    Err("Usage: hash <file>".to_string())
+                } else {
+                    Ok(Command::Hash {
+                        file: PathBuf::from(&args[0]),
+                    })
+                }
+            }
+            "help" | "?" => Ok(Command::Help),
+            "quit" | "exit" => Ok(Command::Quit),
+            _ => Err(format!("Unknown command: {}", cmd)),
+        })
+    }
+}
+
+/// Parse a command line respecting quoted strings.
+/// Handles both single and double quotes.
+fn parse_quoted_args(line: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+
+    for c in line.chars() {
+        match (c, in_quote) {
+            // Start of quoted string
+            ('"' | '\'', None) => {
+                in_quote = Some(c);
+            }
+            // End of quoted string
+            (q, Some(quote)) if q == quote => {
+                in_quote = None;
+            }
+            // Space outside quotes - end of argument
+            (' ', None) => {
+                if !current.is_empty() {
+                    args.push(current);
+                    current = String::new();
+                }
+            }
+            // Any other character
+            _ => {
+                current.push(c);
             }
         }
-        RootRef::File(PathBuf::from(s))
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_quoted_args() {
+        assert_eq!(
+            parse_quoted_args(r#"add "foo bar.nes""#),
+            vec!["add", "foo bar.nes"]
+        );
+        assert_eq!(
+            parse_quoted_args("add 'foo bar.nes'"),
+            vec!["add", "foo bar.nes"]
+        );
+        assert_eq!(
+            parse_quoted_args("link a.nes b.nes"),
+            vec!["link", "a.nes", "b.nes"]
+        );
+    }
+
+    #[test]
+    fn test_parse_commands() {
+        assert!(matches!(
+            Command::parse("add test.nes"),
+            Some(Ok(Command::Add { .. }))
+        ));
+        assert!(matches!(Command::parse("list"), Some(Ok(Command::List))));
+        assert!(matches!(Command::parse("ls"), Some(Ok(Command::List))));
+        assert!(matches!(Command::parse("quit"), Some(Ok(Command::Quit))));
+        assert!(matches!(Command::parse("exit"), Some(Ok(Command::Quit))));
+        assert!(matches!(Command::parse(""), None));
+        assert!(matches!(Command::parse("   "), None));
     }
 }

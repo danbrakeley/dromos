@@ -28,7 +28,10 @@
     "pathfinding",
     "petgraph",
     "reimplementation",
+    "reimplementations",
+    "rusqlite",
     "thiserror",
+    "walkdir",
     "xdelta"
   ],
 }

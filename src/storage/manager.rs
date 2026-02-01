@@ -1,11 +1,10 @@
 use rusqlite::Connection;
 use std::path::Path;
 
-use crate::cli::RootRef;
 use crate::config::StorageConfig;
 use crate::db::{run_migrations, Repository};
 use crate::diff;
-use crate::error::{DromosError, Result};
+use crate::error::Result;
 use crate::graph::{DiffEdge, RomGraph, RomNode};
 use crate::rom::{format_hash, hash_rom_file, read_rom_bytes, RomMetadata};
 
@@ -43,6 +42,7 @@ impl StorageManager {
                 db_id: node_row.id,
                 sha256: node_row.sha256,
                 filename: node_row.filename,
+                title: node_row.title,
                 rom_type: node_row.rom_type,
             });
         }
@@ -69,135 +69,101 @@ impl StorageManager {
         Ok(())
     }
 
-    pub fn add_root(&mut self, path: &Path) -> Result<RomMetadata> {
+    pub fn add_node(&mut self, path: &Path, title: &str) -> Result<RomMetadata> {
         let metadata = hash_rom_file(path)?;
 
         let repo = Repository::new(&self.conn);
 
-        let (prg_rom_size, chr_rom_size, has_trainer) = match &metadata.nes_header {
-            Some(h) => (Some(h.prg_rom_size), Some(h.chr_rom_size), Some(h.has_trainer)),
-            None => (None, None, None),
-        };
-
-        let db_id = repo.insert_node(
-            &metadata.sha256,
-            metadata.filename.as_deref(),
-            metadata.rom_type,
-            prg_rom_size,
-            chr_rom_size,
-            has_trainer,
-        )?;
+        let db_id = repo.insert_node(&metadata, title)?;
 
         self.graph.add_node(RomNode {
             db_id,
             sha256: metadata.sha256,
             filename: metadata.filename.clone(),
+            title: title.to_string(),
             rom_type: metadata.rom_type,
         });
 
         Ok(metadata)
     }
 
-    pub fn add_mod(&mut self, root_ref: RootRef, mod_path: &Path) -> Result<RomMetadata> {
-        // Find the root node
-        let root_hash = match root_ref {
-            RootRef::Hash(h) => h,
-            RootRef::File(ref path) => {
-                let metadata = hash_rom_file(path)?;
-                metadata.sha256
-            }
-        };
+    /// Get a node by hash, if it exists
+    pub fn get_node_by_hash(&self, sha256: &[u8; 32]) -> Option<&RomNode> {
+        self.graph.get_node_by_hash(sha256).and_then(|idx| self.graph.get_node(idx))
+    }
+
+    /// Check if a ROM with the given hash exists
+    pub fn node_exists(&self, sha256: &[u8; 32]) -> bool {
+        self.graph.get_node_by_hash(sha256).is_some()
+    }
+
+    /// Create bidirectional links between two ROMs using their file paths.
+    /// Both ROMs must already exist in the database.
+    pub fn link_nodes(&mut self, path_a: &Path, path_b: &Path) -> Result<(u64, u64)> {
+        let bytes_a = read_rom_bytes(path_a)?;
+        let bytes_b = read_rom_bytes(path_b)?;
+
+        let metadata_a = hash_rom_file(path_a)?;
+        let metadata_b = hash_rom_file(path_b)?;
 
         let repo = Repository::new(&self.conn);
-        let root_node = repo
-            .get_node_by_hash(&root_hash)?
-            .ok_or_else(|| DromosError::RomNotFound {
-                hash: format_hash(&root_hash),
-            })?;
 
-        // Hash the mod file
-        let mod_metadata = hash_rom_file(mod_path)?;
+        // Get both nodes from the database
+        let node_a = repo
+            .get_node_by_hash(&metadata_a.sha256)?
+            .expect("Node A must exist in database");
+        let node_b = repo
+            .get_node_by_hash(&metadata_b.sha256)?
+            .expect("Node B must exist in database");
 
-        // Check if mod already exists
-        if repo.get_node_by_hash(&mod_metadata.sha256)?.is_some() {
-            return Err(DromosError::RomAlreadyExists {
-                hash: format_hash(&mod_metadata.sha256),
-            });
-        }
-
-        // Read both ROM contents for diffing
-        // For the root, we need to find its original file or error
-        let root_file_path = match &root_ref {
-            RootRef::File(p) => p.clone(),
-            RootRef::Hash(_) => {
-                // If referenced by hash, we need the original file path from metadata
-                // For now, require file reference for diff creation
-                return Err(DromosError::FileNotFound {
-                    path: std::path::PathBuf::from(format!(
-                        "<hash:{}>",
-                        format_hash(&root_hash)
-                    )),
-                });
-            }
-        };
-
-        let old_bytes = read_rom_bytes(&root_file_path)?;
-        let new_bytes = read_rom_bytes(mod_path)?;
-
-        // Create diff file
-        let diff_filename = format!(
+        // Create A -> B diff
+        let diff_filename_ab = format!(
             "{}_{}.bsdiff",
-            &format_hash(&root_hash)[..16],
-            &format_hash(&mod_metadata.sha256)[..16]
+            &format_hash(&metadata_a.sha256)[..16],
+            &format_hash(&metadata_b.sha256)[..16]
         );
-        let diff_path = self.config.diffs_dir.join(&diff_filename);
+        let diff_path_ab = self.config.diffs_dir.join(&diff_filename_ab);
+        let diff_size_ab = diff::create_diff(&bytes_a, &bytes_b, &diff_path_ab)?;
 
-        let diff_size = diff::create_diff(&old_bytes, &new_bytes, &diff_path)?;
+        // Create B -> A diff
+        let diff_filename_ba = format!(
+            "{}_{}.bsdiff",
+            &format_hash(&metadata_b.sha256)[..16],
+            &format_hash(&metadata_a.sha256)[..16]
+        );
+        let diff_path_ba = self.config.diffs_dir.join(&diff_filename_ba);
+        let diff_size_ba = diff::create_diff(&bytes_b, &bytes_a, &diff_path_ba)?;
 
-        // Insert mod node
-        let (prg_rom_size, chr_rom_size, has_trainer) = match &mod_metadata.nes_header {
-            Some(h) => (Some(h.prg_rom_size), Some(h.chr_rom_size), Some(h.has_trainer)),
-            None => (None, None, None),
-        };
+        // Insert edges
+        repo.insert_edge(node_a.id, node_b.id, &diff_filename_ab, diff_size_ab as i64)?;
+        repo.insert_edge(node_b.id, node_a.id, &diff_filename_ba, diff_size_ba as i64)?;
 
-        let mod_db_id = repo.insert_node(
-            &mod_metadata.sha256,
-            mod_metadata.filename.as_deref(),
-            mod_metadata.rom_type,
-            prg_rom_size,
-            chr_rom_size,
-            has_trainer,
-        )?;
-
-        // Insert edge
-        repo.insert_edge(
-            root_node.id,
-            mod_db_id,
-            &diff_filename,
-            diff_size as i64,
-        )?;
-
-        // Update graph
-        let mod_node_idx = self.graph.add_node(RomNode {
-            db_id: mod_db_id,
-            sha256: mod_metadata.sha256,
-            filename: mod_metadata.filename.clone(),
-            rom_type: mod_metadata.rom_type,
-        });
-
-        if let Some(root_idx) = self.graph.get_node_by_db_id(root_node.id) {
+        // Update in-memory graph
+        if let (Some(idx_a), Some(idx_b)) = (
+            self.graph.get_node_by_db_id(node_a.id),
+            self.graph.get_node_by_db_id(node_b.id),
+        ) {
             self.graph.add_edge(
-                root_idx,
-                mod_node_idx,
+                idx_a,
+                idx_b,
                 DiffEdge {
-                    db_id: 0, // Will be updated on next load
-                    diff_path: diff_filename,
-                    diff_size: diff_size as i64,
+                    db_id: 0,
+                    diff_path: diff_filename_ab,
+                    diff_size: diff_size_ab as i64,
+                },
+            );
+            self.graph.add_edge(
+                idx_b,
+                idx_a,
+                DiffEdge {
+                    db_id: 0,
+                    diff_path: diff_filename_ba,
+                    diff_size: diff_size_ba as i64,
                 },
             );
         }
 
-        Ok(mod_metadata)
+        Ok((diff_size_ab, diff_size_ba))
     }
 
     pub fn list(&self) -> (Vec<&RomNode>, Vec<(String, String, i64)>) {
@@ -220,13 +186,4 @@ impl StorageManager {
         (nodes, edges)
     }
 
-    pub fn resolve_root_ref(&self, root_ref: &RootRef) -> Result<[u8; 32]> {
-        match root_ref {
-            RootRef::Hash(h) => Ok(*h),
-            RootRef::File(path) => {
-                let metadata = hash_rom_file(path)?;
-                Ok(metadata.sha256)
-            }
-        }
-    }
 }

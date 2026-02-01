@@ -1,3 +1,5 @@
 pub mod commands;
+pub mod repl;
 
-pub use commands::{Cli, Commands, RootRef};
+pub use commands::Command;
+pub use repl::ReplState;
