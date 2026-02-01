@@ -32,11 +32,11 @@ impl Highlighter for DromosHelper {}
 impl Validator for DromosHelper {}
 
 /// Commands that accept file path arguments.
-const FILE_COMMANDS: &[&str] = &["add", "link", "hash"];
+const FILE_COMMANDS: &[&str] = &["add", "link", "links", "hash"];
 
 /// All available commands.
 const ALL_COMMANDS: &[&str] = &[
-    "add", "link", "list", "ls", "search", "hash", "help", "quit", "exit",
+    "add", "link", "links", "list", "ls", "search", "hash", "help", "quit", "exit",
 ];
 
 impl Completer for DromosHelper {

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 pub enum Command {
     Add { file: PathBuf },
     Link { files: Vec<PathBuf> },
+    Links { target: String },
     List,
     Search { query: String },
     Hash { file: PathBuf },
@@ -45,6 +46,15 @@ impl Command {
                 } else {
                     Ok(Command::Link {
                         files: args.iter().map(PathBuf::from).collect(),
+                    })
+                }
+            }
+            "links" => {
+                if args.is_empty() {
+                    Err("Usage: links <file|hash>".to_string())
+                } else {
+                    Ok(Command::Links {
+                        target: args[0].clone(),
                     })
                 }
             }

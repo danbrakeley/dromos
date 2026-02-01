@@ -41,7 +41,7 @@ fn run() -> dromos::Result<()> {
                 match Command::parse(&line) {
                     None => continue, // Empty line
                     Some(Err(e)) => eprintln!("{}", e),
-                    Some(Ok(cmd)) => match state.execute(cmd) {
+                    Some(Ok(cmd)) => match state.execute(cmd, &mut rl) {
                         Ok(true) => {} // Continue
                         Ok(false) => break, // Quit requested
                         Err(e) => eprintln!("Error: {}", e),

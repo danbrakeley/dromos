@@ -186,4 +186,32 @@ impl StorageManager {
         (nodes, edges)
     }
 
+    /// Count outgoing links for a node
+    pub fn link_count(&self, sha256: &[u8; 32]) -> usize {
+        self.graph
+            .get_node_by_hash(sha256)
+            .map(|idx| self.graph.outgoing_edge_count(idx))
+            .unwrap_or(0)
+    }
+
+    /// Get neighbors of a node by hash
+    pub fn get_neighbors(&self, sha256: &[u8; 32]) -> Option<Vec<(&RomNode, i64)>> {
+        let idx = self.graph.get_node_by_hash(sha256)?;
+        Some(
+            self.graph
+                .neighbors(idx)
+                .into_iter()
+                .map(|(node, edge)| (node, edge.diff_size))
+                .collect(),
+        )
+    }
+
+    /// Find a node by hash prefix (for user convenience)
+    pub fn find_node_by_hash_prefix(&self, prefix: &str) -> Option<&RomNode> {
+        let prefix_lower = prefix.to_lowercase();
+        self.graph
+            .iter_nodes()
+            .map(|(_, node)| node)
+            .find(|node| format_hash(&node.sha256).starts_with(&prefix_lower))
+    }
 }

@@ -27,6 +27,7 @@ dromos> help
 Commands:
   add <file>              Add a ROM to the database
   link <file1> [file2]    Create bidirectional links between ROMs
+  links <file|hash>       Show all links for a ROM
   list, ls                List all ROMs (sorted by title)
   search <query>          Search ROMs by title
   hash <file>             Show ROM hash without adding to database
@@ -43,12 +44,12 @@ Added: Super Mario Bros 2 (US, PRG1) (728d0ca6...)
 Linked: Super Mario Bros 2 (US) <-> Super Mario Bros 2 (US, PRG1)
 
 dromos> list
-Super Mario Bros 2 (US)        cba920f9...  NES
-Super Mario Bros 2 (US, PRG1)  728d0ca6...  NES
+Super Mario Bros 2 (US)        cba920f9...  NES  [1 link]
+Super Mario Bros 2 (US, PRG1)  728d0ca6...  NES  [1 link]
 
-dromos> search mario
-Super Mario Bros 2 (US)        cba920f9...  NES
-Super Mario Bros 2 (US, PRG1)  728d0ca6...  NES
+dromos> links cba920f9
+Super Mario Bros 2 (US)  (cba920f9...)
+  -> Super Mario Bros 2 (US, PRG1)  (1.2 KB)
 
 dromos> quit
 ```
@@ -73,6 +74,7 @@ cargo fmt            # Format code
 
 ## DONE
 
+- Show link counts in list, view links for a ROM with `links` command
 - Tab completion for commands and file paths
 - Interactive REPL with command history
 - Add and link ROMs with bidirectional diffs

@@ -1,4 +1,5 @@
 use petgraph::stable_graph::{NodeIndex, StableGraph};
+use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 
 use crate::rom::RomType;
@@ -79,6 +80,24 @@ impl RomGraph {
             let edge = self.graph.edge_weight(idx)?;
             Some((source, target, edge))
         })
+    }
+
+    /// Count outgoing edges from a node
+    pub fn outgoing_edge_count(&self, idx: NodeIndex) -> usize {
+        self.graph.edges(idx).count()
+    }
+
+    /// Get all outgoing neighbors with their edge data
+    pub fn neighbors(&self, idx: NodeIndex) -> Vec<(&RomNode, &DiffEdge)> {
+        self.graph
+            .edges(idx)
+            .filter_map(|edge| {
+                let target = edge.target();
+                let node = self.graph.node_weight(target)?;
+                let edge_data = edge.weight();
+                Some((node, edge_data))
+            })
+            .collect()
     }
 }
 
