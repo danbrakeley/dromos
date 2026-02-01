@@ -1,6 +1,6 @@
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::rom::RomType;
 
@@ -18,6 +18,14 @@ pub struct DiffEdge {
     pub db_id: i64,
     pub diff_path: String,
     pub diff_size: i64,
+}
+
+/// A step in a path from source to target node.
+#[derive(Debug, Clone)]
+pub struct PathStep {
+    pub node_idx: NodeIndex,
+    /// The edge used to reach this node. None for the source node.
+    pub edge: Option<DiffEdge>,
 }
 
 pub struct RomGraph {
@@ -106,6 +114,62 @@ impl RomGraph {
         self.hash_to_node.remove(&node.sha256);
         self.db_id_to_node.remove(&node.db_id);
         Some(node)
+    }
+
+    /// Find shortest path from source to target using BFS.
+    /// Returns None if no path exists.
+    pub fn find_path(&self, source: NodeIndex, target: NodeIndex) -> Option<Vec<PathStep>> {
+        if source == target {
+            return Some(vec![PathStep {
+                node_idx: source,
+                edge: None,
+            }]);
+        }
+
+        // visited maps each node to (previous node, edge used to reach it)
+        let mut visited: HashMap<NodeIndex, (NodeIndex, DiffEdge)> = HashMap::new();
+        let mut queue: VecDeque<NodeIndex> = VecDeque::new();
+        queue.push_back(source);
+
+        while let Some(current) = queue.pop_front() {
+            for edge_ref in self.graph.edges(current) {
+                let neighbor = edge_ref.target();
+                if visited.contains_key(&neighbor) || neighbor == source {
+                    continue;
+                }
+                visited.insert(neighbor, (current, edge_ref.weight().clone()));
+                if neighbor == target {
+                    return Some(self.reconstruct_path(source, target, &visited));
+                }
+                queue.push_back(neighbor);
+            }
+        }
+        None
+    }
+
+    fn reconstruct_path(
+        &self,
+        source: NodeIndex,
+        target: NodeIndex,
+        visited: &HashMap<NodeIndex, (NodeIndex, DiffEdge)>,
+    ) -> Vec<PathStep> {
+        let mut path = Vec::new();
+        let mut current = target;
+
+        while current != source {
+            let (prev, edge) = visited.get(&current).unwrap();
+            path.push(PathStep {
+                node_idx: current,
+                edge: Some(edge.clone()),
+            });
+            current = *prev;
+        }
+        path.push(PathStep {
+            node_idx: source,
+            edge: None,
+        });
+        path.reverse();
+        path
     }
 }
 

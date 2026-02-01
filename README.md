@@ -26,6 +26,7 @@ $ dromos
 dromos> help
 Commands:
   add <file>              Add a ROM to the database
+  build <source> <hash>   Build a ROM by applying diffs from source to target
   link <file1> [file2]    Create bidirectional links between ROMs
   links <file|hash>       Show all links for a ROM
   list, ls                List all ROMs (sorted by title)
@@ -71,12 +72,12 @@ cargo fmt            # Format code
 - should we re-organize so that "root" nodes have their original roms stored in the database?
   - or nodes can optionally have the actual rom stored in the database.
   - nodes will also need metadata for headers that aren't included in the diffs
-- (re-)build a rom file by using a starting rom file a db link
 - colorized output
 - unit tests: where are they and how robust are they?
 
 ## DONE
 
+- Build a ROM from source file to target hash using `build` command with BFS pathfinding
 - Remove a ROM node and all its links with `rm` command (with confirmation)
 - Show link counts in list, view links for a ROM with `links` command
 - Tab completion for commands and file paths

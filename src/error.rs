@@ -38,6 +38,9 @@ pub enum DromosError {
 
     #[error("Diff application failed: {0}")]
     DiffApplication(String),
+
+    #[error("No path from {from} to {to}")]
+    NoPath { from: String, to: String },
 }
 
 pub type Result<T> = std::result::Result<T, DromosError>;

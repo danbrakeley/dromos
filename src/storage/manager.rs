@@ -3,10 +3,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::StorageConfig;
-use crate::db::{Repository, run_migrations};
+use crate::db::{NodeRow, Repository, run_migrations};
 use crate::diff;
-use crate::error::Result;
-use crate::graph::{DiffEdge, RomGraph, RomNode};
+use crate::error::{DromosError, Result};
+use crate::graph::{DiffEdge, PathStep, RomGraph, RomNode};
 use crate::rom::{RomMetadata, format_hash, hash_rom_file, read_rom_bytes};
 
 /// Result of removing a node
@@ -14,6 +14,13 @@ pub struct RemoveResult {
     pub title: String,
     pub edges_removed: usize,
     pub diff_files_removed: usize,
+}
+
+/// Result of building a ROM from diffs
+pub struct BuildResult {
+    pub bytes: Vec<u8>,
+    pub target_row: NodeRow,
+    pub steps: usize,
 }
 
 pub struct StorageManager {
@@ -223,6 +230,67 @@ impl StorageManager {
             .iter_nodes()
             .map(|(_, node)| node)
             .find(|node| format_hash(&node.sha256).starts_with(&prefix_lower))
+    }
+
+    /// Get full NodeRow from database (includes header metadata)
+    pub fn get_node_row_by_hash(&self, sha256: &[u8; 32]) -> Result<Option<NodeRow>> {
+        let repo = Repository::new(&self.conn);
+        repo.get_node_by_hash(sha256)
+    }
+
+    /// Find path between two nodes by their hashes
+    pub fn find_path(
+        &self,
+        source_hash: &[u8; 32],
+        target_hash: &[u8; 32],
+    ) -> Option<Vec<PathStep>> {
+        let source_idx = self.graph.get_node_by_hash(source_hash)?;
+        let target_idx = self.graph.get_node_by_hash(target_hash)?;
+        self.graph.find_path(source_idx, target_idx)
+    }
+
+    /// Build a ROM by applying diffs from source to target
+    pub fn build_rom(&self, source_path: &Path, target_hash: &[u8; 32]) -> Result<BuildResult> {
+        // Get source metadata and verify it's in DB
+        let source_meta = hash_rom_file(source_path)?;
+        if self.get_node_by_hash(&source_meta.sha256).is_none() {
+            return Err(DromosError::RomNotFound {
+                hash: format_hash(&source_meta.sha256),
+            });
+        }
+
+        // Find path
+        let path = self
+            .find_path(&source_meta.sha256, target_hash)
+            .ok_or_else(|| DromosError::NoPath {
+                from: format_hash(&source_meta.sha256),
+                to: format_hash(target_hash),
+            })?;
+
+        // Read source bytes (headerless ROM data)
+        let mut current_bytes = read_rom_bytes(source_path)?;
+
+        // Apply each diff in the path
+        for step in path.iter().skip(1) {
+            // Skip source node
+            if let Some(ref edge) = step.edge {
+                let diff_path = self.config.diffs_dir.join(&edge.diff_path);
+                current_bytes = diff::apply_diff(&current_bytes, &diff_path)?;
+            }
+        }
+
+        // Get target node row (with header metadata)
+        let target_row =
+            self.get_node_row_by_hash(target_hash)?
+                .ok_or_else(|| DromosError::RomNotFound {
+                    hash: format_hash(target_hash),
+                })?;
+
+        Ok(BuildResult {
+            bytes: current_bytes,
+            target_row,
+            steps: path.len() - 1,
+        })
     }
 
     /// Remove a node and all its associated links (edges and diff files)

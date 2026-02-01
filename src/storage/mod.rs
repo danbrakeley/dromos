@@ -1,3 +1,3 @@
 pub mod manager;
 
-pub use manager::{RemoveResult, StorageManager};
+pub use manager::{BuildResult, RemoveResult, StorageManager};

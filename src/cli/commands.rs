@@ -3,6 +3,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub enum Command {
     Add { file: PathBuf },
+    Build { source: PathBuf, target: String },
     Link { files: Vec<PathBuf> },
     Links { target: String },
     List,
@@ -38,6 +39,16 @@ impl Command {
                 } else {
                     Ok(Command::Add {
                         file: PathBuf::from(&args[0]),
+                    })
+                }
+            }
+            "build" => {
+                if args.len() < 2 {
+                    Err("Usage: build <source_file> <target_hash>".to_string())
+                } else {
+                    Ok(Command::Build {
+                        source: PathBuf::from(&args[0]),
+                        target: args[1].clone(),
                     })
                 }
             }

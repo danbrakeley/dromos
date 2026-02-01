@@ -7,7 +7,7 @@ use rustyline::history::DefaultHistory;
 use crate::config::StorageConfig;
 use crate::error::Result;
 use crate::graph::RomNode;
-use crate::rom::{format_hash, hash_rom_file};
+use crate::rom::{RomType, format_hash, hash_rom_file, reconstruct_nes_file};
 use crate::storage::StorageManager;
 
 use super::Command;
@@ -43,6 +43,7 @@ impl ReplState {
             Command::Help => self.print_help(),
             Command::Hash { file } => self.cmd_hash(&file)?,
             Command::Add { file } => self.cmd_add(&file, rl)?,
+            Command::Build { source, target } => self.cmd_build(&source, &target, rl)?,
             Command::Link { files } => self.cmd_link(&files, rl)?,
             Command::Links { target } => self.cmd_links(&target)?,
             Command::List => self.cmd_list(),
@@ -55,6 +56,7 @@ impl ReplState {
     fn print_help(&self) {
         println!("Commands:");
         println!("  add <file>              Add a ROM to the database");
+        println!("  build <source> <hash>   Build a ROM by applying diffs from source to target");
         println!("  link <file1> [file2]    Create bidirectional links between ROMs");
         println!("  links <file|hash>       Show all links for a ROM");
         println!("  list, ls                List all ROMs (sorted by title)");
@@ -123,6 +125,72 @@ impl ReplState {
             hash: metadata.sha256,
             title,
         });
+
+        Ok(())
+    }
+
+    fn cmd_build(
+        &self,
+        source: &Path,
+        target: &str,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<()> {
+        // Validate source exists
+        if !source.exists() {
+            eprintln!("File not found: {}", source.display());
+            return Ok(());
+        }
+
+        // Find target node
+        let target_node = match self.storage.find_node_by_hash_prefix(target) {
+            Some(n) => n,
+            None => {
+                eprintln!("Target ROM not found: {}", target);
+                return Ok(());
+            }
+        };
+        let target_hash = target_node.sha256;
+        let target_title = target_node.title.clone();
+        let target_type = target_node.rom_type;
+
+        // Build the ROM
+        println!("Building {}...", target_title);
+        let result = match self.storage.build_rom(source, &target_hash) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Build failed: {}", e);
+                return Ok(());
+            }
+        };
+        println!("Applied {} diff(s)", result.steps);
+
+        // Prompt for output filename
+        let default_name = sanitize_filename(&target_title);
+        let filename = prompt_with_initial(rl, "Output filename", &default_name)?;
+
+        // Ensure correct extension
+        let filename = ensure_extension(&filename, target_type);
+        let output_path = Path::new(&filename);
+
+        // Reconstruct with header for NES files
+        let final_bytes = if target_type == RomType::Nes {
+            if let Some(header) = result.target_row.to_nes_header() {
+                reconstruct_nes_file(&header, &result.bytes)
+            } else {
+                eprintln!("Warning: No header metadata for NES file, writing raw bytes");
+                result.bytes
+            }
+        } else {
+            result.bytes
+        };
+
+        // Write to disk
+        std::fs::write(output_path, &final_bytes)?;
+        println!(
+            "Wrote {} bytes to {}",
+            final_bytes.len(),
+            output_path.display()
+        );
 
         Ok(())
     }
@@ -496,5 +564,31 @@ fn format_size(bytes: i64) -> String {
         format!("{:.1} KB", bytes / 1024.0)
     } else {
         format!("{:.1} MB", bytes / (1024.0 * 1024.0))
+    }
+}
+
+/// Sanitize a string for use as a filename.
+fn sanitize_filename(title: &str) -> String {
+    title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Ensure filename has the correct extension for the ROM type.
+fn ensure_extension(filename: &str, rom_type: RomType) -> String {
+    let ext = match rom_type {
+        RomType::Nes => ".nes",
+    };
+    if filename.to_lowercase().ends_with(ext) {
+        filename.to_string()
+    } else {
+        format!("{}{}", filename, ext)
     }
 }

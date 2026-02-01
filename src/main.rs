@@ -50,7 +50,7 @@ fn run() -> dromos::Result<()> {
     println!("  - press tab for autocomplete, and up/down for history");
 
     loop {
-        match rl.readline("\ncmd> ") {
+        match rl.readline("\ndromos> ") {
             Ok(line) => {
                 let _ = rl.add_history_entry(&line);
 
