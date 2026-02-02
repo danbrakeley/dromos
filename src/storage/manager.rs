@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::StorageConfig;
-use crate::db::{NodeRow, Repository, run_migrations};
+use crate::db::{NodeMetadata, NodeRow, Repository, run_migrations};
 use crate::diff;
 use crate::error::{DromosError, Result};
 use crate::graph::{DiffEdge, PathStep, RomGraph, RomNode};
@@ -84,18 +84,18 @@ impl StorageManager {
         Ok(())
     }
 
-    pub fn add_node(&mut self, path: &Path, title: &str) -> Result<RomMetadata> {
+    pub fn add_node(&mut self, path: &Path, node_metadata: &NodeMetadata) -> Result<RomMetadata> {
         let metadata = hash_rom_file(path)?;
 
         let repo = Repository::new(&self.conn);
 
-        let db_id = repo.insert_node(&metadata, title)?;
+        let db_id = repo.insert_node(&metadata, node_metadata)?;
 
         self.graph.add_node(RomNode {
             db_id,
             sha256: metadata.sha256,
             filename: metadata.filename.clone(),
-            title: title.to_string(),
+            title: node_metadata.title.clone(),
             rom_type: metadata.rom_type,
         });
 
@@ -238,6 +238,34 @@ impl StorageManager {
         repo.get_node_by_hash(sha256)
     }
 
+    /// Update metadata for a node
+    pub fn update_node_metadata(
+        &mut self,
+        sha256: &[u8; 32],
+        node_metadata: &NodeMetadata,
+    ) -> Result<()> {
+        let repo = Repository::new(&self.conn);
+
+        // Get node from database
+        let node_row = repo
+            .get_node_by_hash(sha256)?
+            .ok_or_else(|| DromosError::RomNotFound {
+                hash: format_hash(sha256),
+            })?;
+
+        // Update database
+        repo.update_node_metadata(node_row.id, node_metadata)?;
+
+        // Update in-memory graph title if changed
+        if let Some(idx) = self.graph.get_node_by_hash(sha256)
+            && let Some(node) = self.graph.get_node_mut(idx)
+        {
+            node.title = node_metadata.title.clone();
+        }
+
+        Ok(())
+    }
+
     /// Find path between two nodes by their hashes
     pub fn find_path(
         &self,
@@ -371,8 +399,12 @@ mod tests {
             metadata: &RomMetadata,
             title: &str,
         ) -> Result<()> {
+            let node_meta = NodeMetadata {
+                title: title.to_string(),
+                ..Default::default()
+            };
             let repo = Repository::new(&self.conn);
-            let db_id = repo.insert_node(metadata, title)?;
+            let db_id = repo.insert_node(metadata, &node_meta)?;
 
             self.graph.add_node(RomNode {
                 db_id,
@@ -592,5 +624,70 @@ mod tests {
             .find_path(&meta_a.sha256, &meta_c.sha256)
             .expect("Path should exist");
         assert_eq!(path.len(), 3); // A -> B -> C
+    }
+
+    #[test]
+    fn test_update_node_metadata() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        manager
+            .add_node_from_metadata(&metadata, "Original Title")
+            .unwrap();
+
+        // Update metadata
+        let updated = NodeMetadata {
+            title: "Updated Title".to_string(),
+            source_url: Some("https://example.com".to_string()),
+            version: Some("1.0".to_string()),
+            release_date: Some("2024-01-15".to_string()),
+            tags: vec!["action".to_string()],
+            description: Some("A description".to_string()),
+        };
+        manager
+            .update_node_metadata(&metadata.sha256, &updated)
+            .unwrap();
+
+        // Verify in-memory graph is updated
+        let node = manager
+            .get_node_by_hash(&metadata.sha256)
+            .expect("Node should exist");
+        assert_eq!(node.title, "Updated Title");
+
+        // Verify database is updated
+        let row = manager
+            .get_node_row_by_hash(&metadata.sha256)
+            .unwrap()
+            .expect("NodeRow should exist");
+        assert_eq!(row.title, "Updated Title");
+        assert_eq!(row.source_url, Some("https://example.com".to_string()));
+        assert_eq!(row.version, Some("1.0".to_string()));
+    }
+
+    #[test]
+    fn test_update_node_title_syncs_graph() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut manager = StorageManager::new_in_memory(temp_dir.path()).unwrap();
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        manager
+            .add_node_from_metadata(&metadata, "Original Title")
+            .unwrap();
+
+        // Update just the title
+        let updated = NodeMetadata {
+            title: "New Title".to_string(),
+            ..Default::default()
+        };
+        manager
+            .update_node_metadata(&metadata.sha256, &updated)
+            .unwrap();
+
+        // Verify in-memory graph node.title is also updated
+        let node = manager
+            .get_node_by_hash(&metadata.sha256)
+            .expect("Node should exist");
+        assert_eq!(node.title, "New Title");
     }
 }

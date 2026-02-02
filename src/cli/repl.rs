@@ -5,6 +5,7 @@ use rustyline::Editor;
 use rustyline::history::DefaultHistory;
 
 use crate::config::StorageConfig;
+use crate::db::NodeMetadata;
 use crate::error::Result;
 use crate::graph::RomNode;
 use crate::rom::{RomType, format_hash, hash_rom_file, reconstruct_nes_file};
@@ -12,6 +13,7 @@ use crate::storage::StorageManager;
 
 use super::Command;
 use super::completer::DromosHelper;
+use super::multiline::edit_multiline;
 
 pub struct ReplState {
     pub storage: StorageManager,
@@ -22,6 +24,13 @@ pub struct ReplState {
 pub struct LastAdded {
     pub hash: [u8; 32],
     pub title: String,
+}
+
+/// Result of ensuring a ROM is in the database
+struct AddResult {
+    title: String,
+    hash: [u8; 32],
+    newly_added: bool,
 }
 
 impl ReplState {
@@ -44,6 +53,7 @@ impl ReplState {
             Command::Hash { file } => self.cmd_hash(&file)?,
             Command::Add { file } => self.cmd_add(&file, rl)?,
             Command::Build { source, target } => self.cmd_build(&source, &target, rl)?,
+            Command::Edit { target } => self.cmd_edit(&target, rl)?,
             Command::Link { files } => self.cmd_link(&files, rl)?,
             Command::Links { target } => self.cmd_links(&target)?,
             Command::List => self.cmd_list(),
@@ -57,6 +67,7 @@ impl ReplState {
         println!("Commands:");
         println!("  add <file>              Add a ROM to the database");
         println!("  build <source> <hash>   Build a ROM by applying diffs from source to target");
+        println!("  edit <hash>             Edit metadata for a ROM");
         println!("  link <file1> [file2]    Create bidirectional links between ROMs");
         println!("  links <file|hash>       Show all links for a ROM");
         println!("  list, ls                List all ROMs (sorted by title)");
@@ -82,48 +93,83 @@ impl ReplState {
         Ok(())
     }
 
+    /// Ensure a ROM file is in the database, prompting for metadata if new.
+    /// Returns None if file doesn't exist (error already printed).
+    /// Returns AddResult with newly_added=false if ROM already exists.
+    /// Returns AddResult with newly_added=true if ROM was added.
+    fn ensure_rom_added(
+        &mut self,
+        file: &Path,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<Option<AddResult>> {
+        // Check if file exists
+        if !file.exists() {
+            eprintln!("File not found: {}", file.display());
+            return Ok(None);
+        }
+
+        // Hash the file
+        let metadata = hash_rom_file(file)?;
+
+        // Check if ROM already exists
+        if self.storage.node_exists(&metadata.sha256) {
+            let node = self.storage.get_node_by_hash(&metadata.sha256).unwrap();
+            return Ok(Some(AddResult {
+                title: node.title.clone(),
+                hash: metadata.sha256,
+                newly_added: false,
+            }));
+        }
+
+        // ROM doesn't exist - prompt for metadata and add
+        let filename = file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file");
+        println!("Adding file {}", filename);
+
+        let default_title = title_from_filename(file);
+        let node_metadata = prompt_metadata(rl, &default_title, None)?;
+
+        // Add to database
+        let metadata = self.storage.add_node(file, &node_metadata)?;
+
+        println!(
+            "Added: {} ({}...)",
+            node_metadata.title,
+            &format_hash(&metadata.sha256)[..16]
+        );
+
+        Ok(Some(AddResult {
+            title: node_metadata.title,
+            hash: metadata.sha256,
+            newly_added: true,
+        }))
+    }
+
     fn cmd_add(
         &mut self,
         file: &Path,
         rl: &mut Editor<DromosHelper, DefaultHistory>,
     ) -> Result<()> {
-        // Check if file exists
-        if !file.exists() {
-            eprintln!("File not found: {}", file.display());
-            return Ok(());
-        }
+        let result = match self.ensure_rom_added(file, rl)? {
+            Some(r) => r,
+            None => return Ok(()), // File not found, error already printed
+        };
 
-        // Hash the file first to check if it already exists
-        let metadata = hash_rom_file(file)?;
-        if self.storage.node_exists(&metadata.sha256) {
-            let node = self.storage.get_node_by_hash(&metadata.sha256).unwrap();
+        if !result.newly_added {
             println!(
                 "ROM already exists: {} ({}...)",
-                node.title,
-                &format_hash(&metadata.sha256)[..16]
+                result.title,
+                &format_hash(&result.hash)[..16]
             );
             return Ok(());
         }
 
-        // Get default title from filename (without extension)
-        let default_title = title_from_filename(file);
-
-        // Prompt for title with editable default
-        let title = prompt_with_initial(rl, "Title", &default_title)?;
-
-        // Add to database
-        let metadata = self.storage.add_node(file, &title)?;
-
-        println!(
-            "Added: {} ({}...)",
-            title,
-            &format_hash(&metadata.sha256)[..16]
-        );
-
         // Update last added
         self.last_added = Some(LastAdded {
-            hash: metadata.sha256,
-            title,
+            hash: result.hash,
+            title: result.title,
         });
 
         Ok(())
@@ -237,34 +283,10 @@ impl ReplState {
             return Ok(());
         }
 
-        // Check if file exists
-        if !file.exists() {
-            eprintln!("File not found: {}", file.display());
-            return Ok(());
-        }
-
-        // Hash and check if already exists
-        let metadata = hash_rom_file(file)?;
-        let needs_add = !self.storage.node_exists(&metadata.sha256);
-
-        let title = if needs_add {
-            // Prompt for title with editable default
-            let filename = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-            println!("Adding file {}", filename);
-            let default_title = title_from_filename(file);
-            let title = prompt_with_initial(rl, "Title", &default_title)?;
-
-            // Add the new ROM
-            self.storage.add_node(file, &title)?;
-            println!(
-                "Added: {} ({}...)",
-                title,
-                &format_hash(&metadata.sha256)[..16]
-            );
-            title
-        } else {
-            let node = self.storage.get_node_by_hash(&metadata.sha256).unwrap();
-            node.title.clone()
+        // Add ROM if needed (with full metadata prompting)
+        let result = match self.ensure_rom_added(file, rl)? {
+            Some(r) => r,
+            None => return Ok(()), // File not found, error already printed
         };
 
         // Need to find the file for the last_added ROM
@@ -276,8 +298,8 @@ impl ReplState {
 
         // Update last added
         self.last_added = Some(LastAdded {
-            hash: metadata.sha256,
-            title,
+            hash: result.hash,
+            title: result.title,
         });
 
         Ok(())
@@ -289,70 +311,26 @@ impl ReplState {
         file_b: &Path,
         rl: &mut Editor<DromosHelper, DefaultHistory>,
     ) -> Result<()> {
-        // Check both files exist
-        if !file_a.exists() {
-            eprintln!("File not found: {}", file_a.display());
-            return Ok(());
-        }
-        if !file_b.exists() {
-            eprintln!("File not found: {}", file_b.display());
-            return Ok(());
-        }
-
-        // Hash both files
-        let metadata_a = hash_rom_file(file_a)?;
-        let metadata_b = hash_rom_file(file_b)?;
-
-        // Add first file if needed
-        let title_a = if !self.storage.node_exists(&metadata_a.sha256) {
-            let filename = file_a
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file");
-            println!("Adding file {}", filename);
-            let default_title = title_from_filename(file_a);
-            let title = prompt_with_initial(rl, "Title", &default_title)?;
-            self.storage.add_node(file_a, &title)?;
-            println!(
-                "Added: {} ({}...)",
-                title,
-                &format_hash(&metadata_a.sha256)[..16]
-            );
-            title
-        } else {
-            let node = self.storage.get_node_by_hash(&metadata_a.sha256).unwrap();
-            node.title.clone()
+        // Add first file if needed (with full metadata prompting)
+        let result_a = match self.ensure_rom_added(file_a, rl)? {
+            Some(r) => r,
+            None => return Ok(()), // File not found, error already printed
         };
 
-        // Add second file if needed
-        let title_b = if !self.storage.node_exists(&metadata_b.sha256) {
-            let filename = file_b
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file");
-            println!("Adding file {}", filename);
-            let default_title = title_from_filename(file_b);
-            let title = prompt_with_initial(rl, "Title", &default_title)?;
-            self.storage.add_node(file_b, &title)?;
-            println!(
-                "Added: {} ({}...)",
-                title,
-                &format_hash(&metadata_b.sha256)[..16]
-            );
-            title
-        } else {
-            let node = self.storage.get_node_by_hash(&metadata_b.sha256).unwrap();
-            node.title.clone()
+        // Add second file if needed (with full metadata prompting)
+        let result_b = match self.ensure_rom_added(file_b, rl)? {
+            Some(r) => r,
+            None => return Ok(()), // File not found, error already printed
         };
 
         // Create bidirectional links
         self.storage.link_nodes(file_a, file_b)?;
-        println!("Linked: {} <-> {}", title_a, title_b);
+        println!("Linked: {} <-> {}", result_a.title, result_b.title);
 
         // Update last added to the second file
         self.last_added = Some(LastAdded {
-            hash: metadata_b.sha256,
-            title: title_b,
+            hash: result_b.hash,
+            title: result_b.title,
         });
 
         Ok(())
@@ -510,6 +488,46 @@ impl ReplState {
             );
         }
     }
+
+    fn cmd_edit(
+        &mut self,
+        target: &str,
+        rl: &mut Editor<DromosHelper, DefaultHistory>,
+    ) -> Result<()> {
+        // Find node by hash prefix
+        let node = match self.storage.find_node_by_hash_prefix(target) {
+            Some(n) => n,
+            None => {
+                eprintln!("ROM not found: {}", target);
+                return Ok(());
+            }
+        };
+
+        let sha256 = node.sha256;
+
+        // Get full NodeRow from database
+        let node_row = match self.storage.get_node_row_by_hash(&sha256)? {
+            Some(r) => r,
+            None => {
+                eprintln!("ROM not found in database: {}", target);
+                return Ok(());
+            }
+        };
+
+        // Prompt for updated metadata
+        let node_metadata = prompt_metadata_from_row(rl, &node_row)?;
+
+        // Update in storage
+        self.storage.update_node_metadata(&sha256, &node_metadata)?;
+
+        println!(
+            "Updated: {} ({}...)",
+            node_metadata.title,
+            &format_hash(&sha256)[..16]
+        );
+
+        Ok(())
+    }
 }
 
 /// Prompt the user with an editable initial value using rustyline.
@@ -530,6 +548,150 @@ fn prompt_with_initial(
         }
         Err(_) => Ok(initial.to_string()),
     }
+}
+
+/// Prompt for an optional string field.
+fn prompt_optional(
+    rl: &mut Editor<DromosHelper, DefaultHistory>,
+    prompt: &str,
+    initial: Option<&str>,
+) -> Result<Option<String>> {
+    let initial_str = initial.unwrap_or("");
+    let prompt_str = format!("{}: ", prompt);
+    match rl.readline_with_initial(&prompt_str, (initial_str, "")) {
+        Ok(line) => {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed.to_string()))
+            }
+        }
+        Err(_) => Ok(initial.map(String::from)),
+    }
+}
+
+/// Prompt for tags as comma-separated values.
+fn prompt_tags(
+    rl: &mut Editor<DromosHelper, DefaultHistory>,
+    existing: &[String],
+) -> Result<Vec<String>> {
+    let initial = existing.join(", ");
+    let prompt_str = "Tags (comma-separated): ";
+    match rl.readline_with_initial(prompt_str, (&initial, "")) {
+        Ok(line) => {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                Ok(vec![])
+            } else {
+                Ok(trimmed
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect())
+            }
+        }
+        Err(_) => Ok(existing.to_vec()),
+    }
+}
+
+/// Prompt for a date in YYYY-MM-DD format.
+fn prompt_date(
+    rl: &mut Editor<DromosHelper, DefaultHistory>,
+    existing: Option<&str>,
+) -> Result<Option<String>> {
+    let initial = existing.unwrap_or("");
+    let prompt_str = "Release Date (YYYY-MM-DD): ";
+    match rl.readline_with_initial(prompt_str, (initial, "")) {
+        Ok(line) => {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                // Validate date format
+                if let Ok(date) = chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+                    Ok(Some(date.format("%Y-%m-%d").to_string()))
+                } else {
+                    eprintln!("Invalid date format, expected YYYY-MM-DD");
+                    Ok(existing.map(String::from))
+                }
+            }
+        }
+        Err(_) => Ok(existing.map(String::from)),
+    }
+}
+
+/// Prompt for multi-line description.
+fn prompt_description(existing: Option<&str>) -> Result<Option<String>> {
+    let initial = existing.unwrap_or("");
+
+    // Ask if user wants to enter/edit description
+    print!("Description (press Enter to {}): ", if initial.is_empty() { "skip" } else { "edit" });
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    if input.trim().is_empty() && initial.is_empty() {
+        return Ok(None);
+    }
+
+    if input.trim().is_empty() && !initial.is_empty() {
+        // Keep existing description, don't open editor
+        return Ok(Some(initial.to_string()));
+    }
+
+    // Open multi-line editor
+    match edit_multiline("Description:", initial)? {
+        Some(text) if text.trim().is_empty() => Ok(None),
+        Some(text) => Ok(Some(text)),
+        None => Ok(existing.map(String::from)),
+    }
+}
+
+/// Prompt for all metadata fields when adding a new ROM.
+fn prompt_metadata(
+    rl: &mut Editor<DromosHelper, DefaultHistory>,
+    default_title: &str,
+    _existing: Option<&crate::db::NodeRow>,
+) -> Result<NodeMetadata> {
+    let title = prompt_with_initial(rl, "Title", default_title)?;
+    let source_url = prompt_optional(rl, "Source URL", None)?;
+    let version = prompt_optional(rl, "Version", None)?;
+    let release_date = prompt_date(rl, None)?;
+    let tags = prompt_tags(rl, &[])?;
+    let description = prompt_description(None)?;
+
+    Ok(NodeMetadata {
+        title,
+        source_url,
+        version,
+        release_date,
+        tags,
+        description,
+    })
+}
+
+/// Prompt for all metadata fields when editing an existing ROM.
+fn prompt_metadata_from_row(
+    rl: &mut Editor<DromosHelper, DefaultHistory>,
+    row: &crate::db::NodeRow,
+) -> Result<NodeMetadata> {
+    let title = prompt_with_initial(rl, "Title", &row.title)?;
+    let source_url = prompt_optional(rl, "Source URL", row.source_url.as_deref())?;
+    let version = prompt_optional(rl, "Version", row.version.as_deref())?;
+    let release_date = prompt_date(rl, row.release_date.as_deref())?;
+    let tags = prompt_tags(rl, &row.tags)?;
+    let description = prompt_description(row.description.as_deref())?;
+
+    Ok(NodeMetadata {
+        title,
+        source_url,
+        version,
+        release_date,
+        tags,
+        description,
+    })
 }
 
 /// Known ROM file extensions to strip from titles.

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 pub enum Command {
     Add { file: PathBuf },
     Build { source: PathBuf, target: String },
+    Edit { target: String },
     Link { files: Vec<PathBuf> },
     Links { target: String },
     List,
@@ -49,6 +50,15 @@ impl Command {
                     Ok(Command::Build {
                         source: PathBuf::from(&args[0]),
                         target: args[1].clone(),
+                    })
+                }
+            }
+            "edit" => {
+                if args.is_empty() {
+                    Err("Usage: edit <hash>".to_string())
+                } else {
+                    Ok(Command::Edit {
+                        target: args[0].clone(),
                     })
                 }
             }
@@ -184,5 +194,18 @@ mod tests {
         assert!(matches!(Command::parse("exit"), Some(Ok(Command::Quit))));
         assert!(matches!(Command::parse(""), None));
         assert!(matches!(Command::parse("   "), None));
+    }
+
+    #[test]
+    fn test_parse_edit_command() {
+        assert!(matches!(
+            Command::parse("edit abc123"),
+            Some(Ok(Command::Edit { target })) if target == "abc123"
+        ));
+    }
+
+    #[test]
+    fn test_parse_edit_no_args() {
+        assert!(matches!(Command::parse("edit"), Some(Err(_))));
     }
 }

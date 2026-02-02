@@ -36,8 +36,8 @@ const FILE_COMMANDS: &[&str] = &["add", "build", "link", "links", "hash"];
 
 /// All available commands.
 const ALL_COMMANDS: &[&str] = &[
-    "add", "build", "link", "links", "list", "ls", "rm", "remove", "search", "hash", "help",
-    "quit", "exit",
+    "add", "build", "edit", "link", "links", "list", "ls", "rm", "remove", "search", "hash",
+    "help", "quit", "exit",
 ];
 
 impl Completer for DromosHelper {

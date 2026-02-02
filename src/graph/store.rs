@@ -68,6 +68,10 @@ impl RomGraph {
         self.graph.node_weight(idx)
     }
 
+    pub fn get_node_mut(&mut self, idx: NodeIndex) -> Option<&mut RomNode> {
+        self.graph.node_weight_mut(idx)
+    }
+
     pub fn node_count(&self) -> usize {
         self.graph.node_count()
     }
