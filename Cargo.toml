@@ -10,6 +10,7 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 rusqlite_migration = "2.4"
 petgraph = "0.8"
 bsdiff = "0.2"
+bzip2 = "0.6"
 thiserror = "2.0"
 directories = "6.0"
 hex = "0.4"
