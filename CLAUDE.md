@@ -43,6 +43,70 @@ See `docs/decisions/` for formal records. Informal/minor decisions can be noted 
 - Module structure: `cli/`, `rom/`, `db/`, `graph/`, `storage/`, `diff/`
 - Error handling: `thiserror` with `DromosError` enum in `error.rs`
 - Hash display: First 16 hex chars for short display, full 64 for identification
+- Title display: Use `format_display_title(title, version)` to show `"Title [version]"` consistently
+
+## Key Data Structures
+
+Understanding these three structs and their relationships is essential:
+
+| Struct         | Location           | Purpose                                                      |
+| -------------- | ------------------ | ------------------------------------------------------------ |
+| `RomNode`      | `graph/store.rs`   | In-memory graph node (title, version, hash, rom_type)        |
+| `NodeRow`      | `db/repository.rs` | Full database row (all fields including NES header metadata) |
+| `NodeMetadata` | `db/repository.rs` | User-editable fields for add/edit operations                 |
+
+**Data flow:**
+
+- `NodeMetadata` → user input during add/edit
+- `NodeMetadata` + `RomMetadata` → `Repository::insert_node()` → database
+- Database → `Repository::load_all_nodes()` → `NodeRow` → `RomNode` (in-memory graph)
+
+**When to use each:**
+
+- Need to display a ROM? Use `RomNode` from graph (fast, in-memory)
+- Need full metadata (NES header, description, tags)? Use `NodeRow` from `get_node_row_by_hash()`
+- Adding/editing a ROM? Build a `NodeMetadata` from user prompts
+
+## Adding a New Field to ROM Nodes
+
+When adding a new field (like `version`, `tags`, etc.):
+
+### 1. Database migration (`migrations/NNN_name.sql`)
+
+```sql
+ALTER TABLE nodes ADD COLUMN field_name TEXT;
+```
+
+### 2. Update `src/db/schema.rs`
+
+Add migration to the `Migrations::new(vec![...])` list.
+
+### 3. Update `src/db/repository.rs`
+
+- Add field to `NodeRow` struct
+- Add field to `NodeMetadata` struct (if user-editable)
+- Update `map_row_to_node_row()` to read the new column
+- Update ALL SELECT queries (4 places: `get_node_by_hash`, `get_node_by_id`, `load_all_nodes`, and column comments)
+- Update `insert_node()` to write the new column
+- Update `update_node_metadata()` if field is editable
+
+### 4. Update `src/graph/store.rs` (if field needed in memory)
+
+- Add field to `RomNode` struct
+- Update test helper `make_node()`
+
+### 5. Update `src/storage/manager.rs`
+
+- Update `load_graph_from_db()` to include field when creating `RomNode`
+- Update `add_node()` to include field when creating `RomNode`
+- Update `update_node_metadata()` to sync field to graph if needed
+- Update test helper `add_node_from_metadata()`
+
+### 6. Update `src/cli/repl.rs` (if user-facing)
+
+- Add prompting in `prompt_metadata()` and `prompt_metadata_from_row()`
+- Update `AddResult` and `LastAdded` structs if field affects display
+- Update display locations to show the new field
 
 ## Adding a New CLI Command
 
@@ -84,9 +148,21 @@ For database operations, add methods bottom-up:
 
 - **Hash resolution**: Use `find_node_by_hash_prefix()` to let users type partial hashes
 - **Confirmation prompts**: For destructive ops, prompt `[y/N]` and check for `"y"` or `"yes"`
-- **Output format**: `"Title  hash...  Type  [N links]"` for node listings
+- **Output format**: `"Title [version]  hash...  Type  [N links]"` for node listings
+- **Title display**: Always use `format_display_title(&node.title, node.version.as_deref())` for consistent output
 - **Error handling**: Return `Ok(())` after printing error with `eprintln!`, reserve `Err` for unexpected failures
 - **Last added tracking**: Update `self.last_added` when adding nodes; clear it if removed
+- **Adding ROMs**: Use `ensure_rom_added()` helper - handles existence check, metadata prompting, and database insertion
+
+### Key Helper Functions in `repl.rs`
+
+| Function                                       | Purpose                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------- |
+| `ensure_rom_added(file, rl)`                   | Add ROM if not exists, prompt for full metadata, return `AddResult` |
+| `format_display_title(title, version)`         | Format title with optional version: `"Title [1.0]"` or `"Title"`    |
+| `prompt_metadata(rl, default_title, existing)` | Prompt for all metadata fields (new ROM)                            |
+| `prompt_metadata_from_row(rl, node_row)`       | Prompt for all metadata fields (editing existing ROM)               |
+| `prompt_with_initial(rl, prompt, initial)`     | Single-line prompt with editable default                            |
 
 ### Example: Minimal read-only command
 
@@ -115,7 +191,27 @@ fn cmd_foo(&self, target: &str) -> Result<()> {
             return Ok(());
         }
     };
-    println!("Found: {}", node.title);
+    let display = format_display_title(&node.title, node.version.as_deref());
+    println!("Found: {}", display);
     Ok(())
 }
+```
+
+## Testing
+
+### Test Helpers
+
+Each module has test helpers for creating test data:
+
+- `db/repository.rs`: `make_metadata(hash_byte, filename)`, `make_node_metadata(title)`
+- `graph/store.rs`: `make_node(db_id, hash_byte, title)`, `make_edge(db_id, diff_path)`
+- `storage/manager.rs`: `make_metadata(hash_byte, filename)`, `StorageManager::new_in_memory(temp_dir)`, `add_node_from_metadata(metadata, title)`
+
+### Running Tests
+
+```bash
+cargo test                    # Run all tests
+cargo test db::               # Run only db module tests
+cargo test --lib              # Skip doc tests
+cargo test test_name          # Run specific test
 ```

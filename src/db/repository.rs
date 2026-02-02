@@ -117,11 +117,7 @@ impl<'a> Repository<'a> {
         Repository { conn }
     }
 
-    pub fn insert_node(
-        &self,
-        metadata: &RomMetadata,
-        node_metadata: &NodeMetadata,
-    ) -> Result<i64> {
+    pub fn insert_node(&self, metadata: &RomMetadata, node_metadata: &NodeMetadata) -> Result<i64> {
         let hash_hex = format_hash(&metadata.sha256);
 
         // Check if already exists
@@ -473,12 +469,14 @@ mod tests {
         let meta_a = make_metadata(0xAA, "a.nes");
         let meta_b = make_metadata(0xBB, "b.nes");
 
-        let id_a = repo.insert_node(&meta_a, &make_node_metadata("ROM A")).unwrap();
-        let id_b = repo.insert_node(&meta_b, &make_node_metadata("ROM B")).unwrap();
-
-        let edge_id = repo
-            .insert_edge(id_a, id_b, "a_to_b.bsdiff", 1234)
+        let id_a = repo
+            .insert_node(&meta_a, &make_node_metadata("ROM A"))
             .unwrap();
+        let id_b = repo
+            .insert_node(&meta_b, &make_node_metadata("ROM B"))
+            .unwrap();
+
+        let edge_id = repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1234).unwrap();
         assert!(edge_id > 0);
     }
 
@@ -490,8 +488,12 @@ mod tests {
         let meta_a = make_metadata(0xAA, "a.nes");
         let meta_b = make_metadata(0xBB, "b.nes");
 
-        let id_a = repo.insert_node(&meta_a, &make_node_metadata("ROM A")).unwrap();
-        let id_b = repo.insert_node(&meta_b, &make_node_metadata("ROM B")).unwrap();
+        let id_a = repo
+            .insert_node(&meta_a, &make_node_metadata("ROM A"))
+            .unwrap();
+        let id_b = repo
+            .insert_node(&meta_b, &make_node_metadata("ROM B"))
+            .unwrap();
 
         repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1234).unwrap();
 
@@ -512,8 +514,10 @@ mod tests {
         let meta_a = make_metadata(0xAA, "a.nes");
         let meta_b = make_metadata(0xBB, "b.nes");
 
-        repo.insert_node(&meta_a, &make_node_metadata("ROM A")).unwrap();
-        repo.insert_node(&meta_b, &make_node_metadata("ROM B")).unwrap();
+        repo.insert_node(&meta_a, &make_node_metadata("ROM A"))
+            .unwrap();
+        repo.insert_node(&meta_b, &make_node_metadata("ROM B"))
+            .unwrap();
 
         let nodes = repo.load_all_nodes().unwrap();
         assert_eq!(nodes.len(), 2);
@@ -529,8 +533,12 @@ mod tests {
         let meta_a = make_metadata(0xAA, "a.nes");
         let meta_b = make_metadata(0xBB, "b.nes");
 
-        let id_a = repo.insert_node(&meta_a, &make_node_metadata("ROM A")).unwrap();
-        let id_b = repo.insert_node(&meta_b, &make_node_metadata("ROM B")).unwrap();
+        let id_a = repo
+            .insert_node(&meta_a, &make_node_metadata("ROM A"))
+            .unwrap();
+        let id_b = repo
+            .insert_node(&meta_b, &make_node_metadata("ROM B"))
+            .unwrap();
 
         repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1000).unwrap();
         repo.insert_edge(id_b, id_a, "b_to_a.bsdiff", 2000).unwrap();
@@ -550,9 +558,15 @@ mod tests {
         let meta_b = make_metadata(0xBB, "b.nes");
         let meta_c = make_metadata(0xCC, "c.nes");
 
-        let id_a = repo.insert_node(&meta_a, &make_node_metadata("ROM A")).unwrap();
-        let id_b = repo.insert_node(&meta_b, &make_node_metadata("ROM B")).unwrap();
-        let id_c = repo.insert_node(&meta_c, &make_node_metadata("ROM C")).unwrap();
+        let id_a = repo
+            .insert_node(&meta_a, &make_node_metadata("ROM A"))
+            .unwrap();
+        let id_b = repo
+            .insert_node(&meta_b, &make_node_metadata("ROM B"))
+            .unwrap();
+        let id_c = repo
+            .insert_node(&meta_c, &make_node_metadata("ROM C"))
+            .unwrap();
 
         repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1000).unwrap();
         repo.insert_edge(id_b, id_a, "b_to_a.bsdiff", 1000).unwrap();
@@ -582,9 +596,15 @@ mod tests {
         let meta_b = make_metadata(0xBB, "b.nes");
         let meta_c = make_metadata(0xCC, "c.nes");
 
-        let id_a = repo.insert_node(&meta_a, &make_node_metadata("ROM A")).unwrap();
-        let id_b = repo.insert_node(&meta_b, &make_node_metadata("ROM B")).unwrap();
-        let id_c = repo.insert_node(&meta_c, &make_node_metadata("ROM C")).unwrap();
+        let id_a = repo
+            .insert_node(&meta_a, &make_node_metadata("ROM A"))
+            .unwrap();
+        let id_b = repo
+            .insert_node(&meta_b, &make_node_metadata("ROM B"))
+            .unwrap();
+        let id_c = repo
+            .insert_node(&meta_c, &make_node_metadata("ROM C"))
+            .unwrap();
 
         repo.insert_edge(id_a, id_b, "a_to_b.bsdiff", 1000).unwrap();
         repo.insert_edge(id_b, id_a, "b_to_a.bsdiff", 1000).unwrap();

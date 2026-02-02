@@ -174,14 +174,22 @@ mod tests {
     fn test_parse_hash_invalid_length() {
         assert!(parse_hash("abc").is_none());
         assert!(parse_hash("").is_none());
-        assert!(parse_hash("abcd00000000000000000000000000000000000000000000000000000000000").is_none()); // 63 chars
-        assert!(parse_hash("abcd000000000000000000000000000000000000000000000000000000000000f").is_none()); // 65 chars
+        assert!(
+            parse_hash("abcd00000000000000000000000000000000000000000000000000000000000").is_none()
+        ); // 63 chars
+        assert!(
+            parse_hash("abcd000000000000000000000000000000000000000000000000000000000000f")
+                .is_none()
+        ); // 65 chars
     }
 
     #[test]
     fn test_parse_hash_invalid_chars() {
         // Contains 'g' which is not valid hex
-        assert!(parse_hash("ghij0000000000000000000000000000000000000000000000000000000000ef").is_none());
+        assert!(
+            parse_hash("ghij0000000000000000000000000000000000000000000000000000000000ef")
+                .is_none()
+        );
     }
 
     #[test]

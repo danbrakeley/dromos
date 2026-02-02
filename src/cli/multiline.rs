@@ -1,10 +1,9 @@
 use std::io::{self, Write};
 
 use crossterm::{
-    cursor,
+    ExecutableCommand, cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{self, ClearType},
-    ExecutableCommand,
 };
 
 /// Edit multi-line text with raw terminal handling.
@@ -48,7 +47,10 @@ fn run_editor(stdout: &mut io::Stdout, initial: &str) -> io::Result<Option<Strin
     render_editor(stdout, &lines, cursor_line, cursor_col)?;
 
     loop {
-        if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
+        if let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event::read()?
+        {
             match (code, modifiers) {
                 // Ctrl+D: save and exit
                 (KeyCode::Char('d'), KeyModifiers::CONTROL) => {

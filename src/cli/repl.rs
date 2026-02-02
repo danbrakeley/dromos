@@ -125,10 +125,7 @@ impl ReplState {
         }
 
         // ROM doesn't exist - prompt for metadata and add
-        let filename = file
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("file");
+        let filename = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
         println!("Adding file {}", filename);
 
         let default_title = title_from_filename(file);
@@ -407,7 +404,11 @@ impl ReplState {
         let neighbors = self.storage.get_neighbors(&node.sha256);
 
         let display_title = format_display_title(&node.title, node.version.as_deref());
-        println!("{}  ({}...)", display_title, &format_hash(&node.sha256)[..16]);
+        println!(
+            "{}  ({}...)",
+            display_title,
+            &format_hash(&node.sha256)[..16]
+        );
 
         match neighbors {
             Some(links) if !links.is_empty() => {
@@ -657,7 +658,10 @@ fn prompt_description(existing: Option<&str>) -> Result<Option<String>> {
     let initial = existing.unwrap_or("");
 
     // Ask if user wants to enter/edit description
-    print!("Description (press Enter to {}): ", if initial.is_empty() { "skip" } else { "edit" });
+    print!(
+        "Description (press Enter to {}): ",
+        if initial.is_empty() { "skip" } else { "edit" }
+    );
     io::stdout().flush()?;
 
     let mut input = String::new();
