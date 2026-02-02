@@ -27,6 +27,7 @@ dromos> help
 Commands:
   add <file>              Add a ROM to the database
   build <source> <hash>   Build a ROM by applying diffs from source to target
+  edit <hash>             Edit metadata for a ROM
   link <file1> [file2]    Create bidirectional links between ROMs
   links <file|hash>       Show all links for a ROM
   list, ls                List all ROMs (sorted by title)
@@ -36,22 +37,34 @@ Commands:
   help                    Show this help
   quit, exit              Exit dromos
 
-dromos> add "Super Mario Bros 2 (PRG0).nes"
-Title [Super Mario Bros 2 (PRG0).nes]: Super Mario Bros 2 (US)
-Added: Super Mario Bros 2 (US) (cba920f9...)
+dromos> add "Super Game (USA).nes"
+Adding file Super Game (USA).nes
+Title: Super Game
+Source URL:
+Version: USA, Rev 0
+Release Date (YYYY-MM-DD): 1999-01-01
+Tags (comma-separated): platformer
+Description (press Enter to skip):
+Added: Super Game [USA, Rev 0] (abc12345...)
 
-dromos> link "Super Mario Bros 2 (PRG0).nes" "Super Mario Bros 2 (PRG1).nes"
-Title for Super Mario Bros 2 (PRG1).nes [Super Mario Bros 2 (PRG1).nes]: Super Mario Bros 2 (US, PRG1)
-Added: Super Mario Bros 2 (US, PRG1) (728d0ca6...)
-Linked: Super Mario Bros 2 (US) <-> Super Mario Bros 2 (US, PRG1)
+dromos> link "Super Game (USA).nes" "Super Game (USA) [PRG1].nes"
+Adding file Super Game (USA) [PRG1].nes
+Title: Super Game
+Source URL:
+Version: USA, Rev 1
+Release Date (YYYY-MM-DD): 1999-01-01
+Tags (comma-separated): platformer
+Description (press Enter to skip):
+Added: Super Game [USA, Rev 1] (c32154ba...)
+Linked: Super Game [USA, Rev 0] <-> Super Game [USA, Rev 1]
 
 dromos> list
-Super Mario Bros 2 (US)        cba920f9...  NES  [1 link]
-Super Mario Bros 2 (US, PRG1)  728d0ca6...  NES  [1 link]
+Super Game [USA, Rev 0]  abc12345...  NES  [1 link]
+Super Game [USA, Rev 1]  c32154ba...  NES  [1 link]
 
-dromos> links cba920f9
-Super Mario Bros 2 (US)  (cba920f9...)
-  -> Super Mario Bros 2 (US, PRG1)  (1.2 KB)
+dromos> links abc12345
+Super Game [USA, Rev 0]  (abc12345...)
+  -> Super Game [USA, Rev 1]  (1.2 KB)
 
 dromos> quit
 ```
@@ -69,24 +82,14 @@ cargo fmt            # Format code
 
 ## TODO
 
-- more metadata (optional):
-  - source (url)
-  - version
-  - date
-  - tags
-  - description
 - colorized output
 - build requires a starting rom; should we support storing that in the database?
 
 ## DONE
 
-- Comprehensive unit test suite (65 tests) covering:
-  - Graph operations (`RomGraph` node/edge manipulation, BFS pathfinding)
-  - NES header parsing and reconstruction
-  - Database repository operations (CRUD, cascading deletes)
-  - Storage manager integration
-  - Binary diff creation and application
-  - Hash functions and type conversions
+- Version displayed in brackets after title throughout the interface (e.g., "Super Mario Bros [1.0]")
+- Edit command to modify metadata for existing ROMs
+- ROM metadata fields: source URL, version, release date, tags, and multi-line description
 - Build a ROM from source file to target hash using `build` command with BFS pathfinding
 - Remove a ROM node and all its links with `rm` command (with confirmation)
 - Show link counts in list, view links for a ROM with `links` command

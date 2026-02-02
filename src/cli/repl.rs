@@ -24,11 +24,13 @@ pub struct ReplState {
 pub struct LastAdded {
     pub hash: [u8; 32],
     pub title: String,
+    pub version: Option<String>,
 }
 
 /// Result of ensuring a ROM is in the database
 struct AddResult {
     title: String,
+    version: Option<String>,
     hash: [u8; 32],
     newly_added: bool,
 }
@@ -116,6 +118,7 @@ impl ReplState {
             let node = self.storage.get_node_by_hash(&metadata.sha256).unwrap();
             return Ok(Some(AddResult {
                 title: node.title.clone(),
+                version: node.version.clone(),
                 hash: metadata.sha256,
                 newly_added: false,
             }));
@@ -134,14 +137,17 @@ impl ReplState {
         // Add to database
         let metadata = self.storage.add_node(file, &node_metadata)?;
 
+        let display_title =
+            format_display_title(&node_metadata.title, node_metadata.version.as_deref());
         println!(
             "Added: {} ({}...)",
-            node_metadata.title,
+            display_title,
             &format_hash(&metadata.sha256)[..16]
         );
 
         Ok(Some(AddResult {
             title: node_metadata.title,
+            version: node_metadata.version,
             hash: metadata.sha256,
             newly_added: true,
         }))
@@ -158,9 +164,10 @@ impl ReplState {
         };
 
         if !result.newly_added {
+            let display_title = format_display_title(&result.title, result.version.as_deref());
             println!(
                 "ROM already exists: {} ({}...)",
-                result.title,
+                display_title,
                 &format_hash(&result.hash)[..16]
             );
             return Ok(());
@@ -170,6 +177,7 @@ impl ReplState {
         self.last_added = Some(LastAdded {
             hash: result.hash,
             title: result.title,
+            version: result.version,
         });
 
         Ok(())
@@ -197,10 +205,12 @@ impl ReplState {
         };
         let target_hash = target_node.sha256;
         let target_title = target_node.title.clone();
+        let target_version = target_node.version.clone();
         let target_type = target_node.rom_type;
 
         // Build the ROM
-        println!("Building {}...", target_title);
+        let display_title = format_display_title(&target_title, target_version.as_deref());
+        println!("Building {}...", display_title);
         let result = match self.storage.build_rom(source, &target_hash) {
             Ok(r) => r,
             Err(e) => {
@@ -270,7 +280,8 @@ impl ReplState {
         };
 
         // Confirm link to last added
-        let prompt = format!("Link to \"{}\"? [Y/n]", last.title);
+        let last_display = format_display_title(&last.title, last.version.as_deref());
+        let prompt = format!("Link to \"{}\"? [Y/n]", last_display);
         print!("{}: ", prompt);
         io::stdout().flush()?;
 
@@ -300,6 +311,7 @@ impl ReplState {
         self.last_added = Some(LastAdded {
             hash: result.hash,
             title: result.title,
+            version: result.version,
         });
 
         Ok(())
@@ -325,12 +337,15 @@ impl ReplState {
 
         // Create bidirectional links
         self.storage.link_nodes(file_a, file_b)?;
-        println!("Linked: {} <-> {}", result_a.title, result_b.title);
+        let display_a = format_display_title(&result_a.title, result_a.version.as_deref());
+        let display_b = format_display_title(&result_b.title, result_b.version.as_deref());
+        println!("Linked: {} <-> {}", display_a, display_b);
 
         // Update last added to the second file
         self.last_added = Some(LastAdded {
             hash: result_b.hash,
             title: result_b.title,
+            version: result_b.version,
         });
 
         Ok(())
@@ -359,9 +374,10 @@ impl ReplState {
             } else {
                 String::new()
             };
+            let display_title = format_display_title(&node.title, node.version.as_deref());
             println!(
                 "{}  {}...  {}{}",
-                node.title,
+                display_title,
                 &format_hash(&node.sha256)[..16],
                 node.rom_type,
                 link_info
@@ -390,12 +406,15 @@ impl ReplState {
 
         let neighbors = self.storage.get_neighbors(&node.sha256);
 
-        println!("{}  ({}...)", node.title, &format_hash(&node.sha256)[..16]);
+        let display_title = format_display_title(&node.title, node.version.as_deref());
+        println!("{}  ({}...)", display_title, &format_hash(&node.sha256)[..16]);
 
         match neighbors {
             Some(links) if !links.is_empty() => {
                 for (neighbor, diff_size) in links {
-                    println!("  -> {}  ({})", neighbor.title, format_size(diff_size));
+                    let neighbor_display =
+                        format_display_title(&neighbor.title, neighbor.version.as_deref());
+                    println!("  -> {}  ({})", neighbor_display, format_size(diff_size));
                 }
             }
             _ => {
@@ -419,14 +438,14 @@ impl ReplState {
         };
 
         let sha256 = node.sha256;
-        let title = node.title.clone();
+        let display_title = format_display_title(&node.title, node.version.as_deref());
         let link_count = self.storage.link_count(&sha256);
 
         // Prompt for confirmation
         let link_text = if link_count == 1 { "link" } else { "links" };
         print!(
             "Remove '{}' and {} {}? [y/N]: ",
-            title, link_count, link_text
+            display_title, link_count, link_text
         );
         io::stdout().flush()?;
 
@@ -444,7 +463,7 @@ impl ReplState {
 
         println!(
             "Removed: {} ({} edge{}, {} diff file{})",
-            result.title,
+            display_title,
             result.edges_removed,
             if result.edges_removed == 1 { "" } else { "s" },
             result.diff_files_removed,
@@ -480,9 +499,10 @@ impl ReplState {
         }
 
         for node in matches {
+            let display_title = format_display_title(&node.title, node.version.as_deref());
             println!(
                 "{}  {}...  {}",
-                node.title,
+                display_title,
                 &format_hash(&node.sha256)[..16],
                 node.rom_type
             );
@@ -520,13 +540,24 @@ impl ReplState {
         // Update in storage
         self.storage.update_node_metadata(&sha256, &node_metadata)?;
 
+        let display_title =
+            format_display_title(&node_metadata.title, node_metadata.version.as_deref());
         println!(
             "Updated: {} ({}...)",
-            node_metadata.title,
+            display_title,
             &format_hash(&sha256)[..16]
         );
 
         Ok(())
+    }
+}
+
+/// Format a title with optional version for display.
+/// Returns "Title [version]" if version exists, otherwise just "Title".
+fn format_display_title(title: &str, version: Option<&str>) -> String {
+    match version {
+        Some(v) if !v.is_empty() => format!("{} [{}]", title, v),
+        _ => title.to_string(),
     }
 }
 

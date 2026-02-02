@@ -10,6 +10,7 @@ pub struct RomNode {
     pub sha256: [u8; 32],
     pub filename: Option<String>,
     pub title: String,
+    pub version: Option<String>,
     pub rom_type: RomType,
 }
 
@@ -195,6 +196,7 @@ mod tests {
             sha256,
             filename: Some(format!("{}.nes", title)),
             title: title.to_string(),
+            version: None,
             rom_type: RomType::Nes,
         }
     }

@@ -58,6 +58,7 @@ impl StorageManager {
                 sha256: node_row.sha256,
                 filename: node_row.filename,
                 title: node_row.title,
+                version: node_row.version,
                 rom_type: node_row.rom_type,
             });
         }
@@ -96,6 +97,7 @@ impl StorageManager {
             sha256: metadata.sha256,
             filename: metadata.filename.clone(),
             title: node_metadata.title.clone(),
+            version: node_metadata.version.clone(),
             rom_type: metadata.rom_type,
         });
 
@@ -256,11 +258,12 @@ impl StorageManager {
         // Update database
         repo.update_node_metadata(node_row.id, node_metadata)?;
 
-        // Update in-memory graph title if changed
+        // Update in-memory graph title and version
         if let Some(idx) = self.graph.get_node_by_hash(sha256)
             && let Some(node) = self.graph.get_node_mut(idx)
         {
             node.title = node_metadata.title.clone();
+            node.version = node_metadata.version.clone();
         }
 
         Ok(())
@@ -411,6 +414,7 @@ mod tests {
                 sha256: metadata.sha256,
                 filename: metadata.filename.clone(),
                 title: title.to_string(),
+                version: None,
                 rom_type: metadata.rom_type,
             });
 
