@@ -8,7 +8,9 @@ use crate::config::StorageConfig;
 use crate::db::NodeMetadata;
 use crate::error::Result;
 use crate::graph::RomNode;
-use crate::rom::{RomType, format_hash, hash_rom_file, reconstruct_nes_file};
+use crate::rom::{
+    RomType, format_hash, hash_rom_file, reconstruct_nes_file, reconstruct_nes_file_raw,
+};
 use crate::storage::StorageManager;
 
 use super::Command;
@@ -226,8 +228,11 @@ impl ReplState {
         let output_path = Path::new(&filename);
 
         // Reconstruct with header for NES files
+        // Prefer raw header for byte-identical output; fall back to parsed header
         let final_bytes = if target_type == RomType::Nes {
-            if let Some(header) = result.target_row.to_nes_header() {
+            if let Some(ref raw_header) = result.target_row.source_file_header {
+                reconstruct_nes_file_raw(raw_header, &result.bytes)
+            } else if let Some(header) = result.target_row.to_nes_header() {
                 reconstruct_nes_file(&header, &result.bytes)
             } else {
                 eprintln!("Warning: No header metadata for NES file, writing raw bytes");

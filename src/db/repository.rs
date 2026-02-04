@@ -17,7 +17,7 @@ pub struct NodeMetadata {
 /// Map a database row to NodeRow. Expects columns in order:
 /// id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size,
 /// has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper,
-/// source_url, version, release_date, tags, description
+/// source_url, version, release_date, tags, description, source_file_header
 fn map_row_to_node_row(row: &Row) -> rusqlite::Result<NodeRow> {
     let hash_str: String = row.get(1)?;
     let sha256 = hex::decode(&hash_str)
@@ -56,6 +56,7 @@ fn map_row_to_node_row(row: &Row) -> rusqlite::Result<NodeRow> {
         release_date: row.get(15)?,
         tags,
         description: row.get(17)?,
+        source_file_header: row.get(18)?,
     })
 }
 
@@ -80,6 +81,8 @@ pub struct NodeRow {
     pub release_date: Option<String>,
     pub tags: Vec<String>,
     pub description: Option<String>,
+    /// Raw file header bytes for byte-identical reconstruction
+    pub source_file_header: Option<Vec<u8>>,
 }
 
 impl NodeRow {
@@ -156,8 +159,8 @@ impl<'a> Repository<'a> {
         };
 
         self.conn.execute(
-            "INSERT INTO nodes (sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            "INSERT INTO nodes (sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description, source_file_header)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 hash_hex,
                 metadata.filename.as_deref(),
@@ -176,6 +179,7 @@ impl<'a> Repository<'a> {
                 &node_metadata.release_date,
                 &tags_json,
                 &node_metadata.description,
+                &metadata.source_file_header,
             ],
         )?;
 
@@ -218,7 +222,7 @@ impl<'a> Repository<'a> {
         let result = self
             .conn
             .query_row(
-                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description
+                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description, source_file_header
                  FROM nodes WHERE sha256 = ?1",
                 params![hash_hex],
                 map_row_to_node_row,
@@ -232,7 +236,7 @@ impl<'a> Repository<'a> {
         let result = self
             .conn
             .query_row(
-                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description
+                "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description, source_file_header
                  FROM nodes WHERE id = ?1",
                 params![id],
                 map_row_to_node_row,
@@ -244,7 +248,7 @@ impl<'a> Repository<'a> {
 
     pub fn load_all_nodes(&self) -> Result<Vec<NodeRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description
+            "SELECT id, sha256, filename, title, rom_type, prg_rom_size, chr_rom_size, has_trainer, mapper, mirroring, has_battery, is_nes2, nes2_submapper, source_url, version, release_date, tags, description, source_file_header
              FROM nodes ORDER BY id",
         )?;
 
@@ -359,6 +363,15 @@ mod tests {
     fn make_metadata(hash_byte: u8, filename: &str) -> RomMetadata {
         let mut sha256 = [0u8; 32];
         sha256[0] = hash_byte;
+        // Create a test header: 2 PRG banks (32KB), 1 CHR bank (8KB), mapper 4, vertical mirroring, battery
+        let header_bytes = vec![
+            b'N', b'E', b'S', 0x1A, // Magic
+            2,    // PRG ROM size (2 x 16KB = 32KB)
+            1,    // CHR ROM size (1 x 8KB = 8KB)
+            0x43, // Flags 6: mapper lo=4, vertical, battery
+            0x00, // Flags 7: mapper hi=0
+            0, 0, 0, 0, 0, 0, 0, 0, // Padding
+        ];
         RomMetadata {
             rom_type: RomType::Nes,
             sha256,
@@ -373,6 +386,7 @@ mod tests {
                 is_nes2: false,
                 submapper: None,
             }),
+            source_file_header: Some(header_bytes),
         }
     }
 
@@ -760,5 +774,52 @@ mod tests {
             .expect("Node should exist");
 
         assert!(node.tags.is_empty());
+    }
+
+    #[test]
+    fn test_source_file_header_roundtrip() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        let metadata = make_metadata(0xAA, "test.nes");
+        let node_meta = make_node_metadata("Test ROM");
+        repo.insert_node(&metadata, &node_meta).unwrap();
+
+        let node = repo
+            .get_node_by_hash(&metadata.sha256)
+            .unwrap()
+            .expect("Node should exist");
+
+        // Verify source_file_header was stored and retrieved correctly
+        assert!(node.source_file_header.is_some());
+        let header = node.source_file_header.unwrap();
+        assert_eq!(header.len(), 16);
+        assert_eq!(&header[0..4], b"NES\x1a");
+    }
+
+    #[test]
+    fn test_source_file_header_none() {
+        let conn = setup_test_db();
+        let repo = Repository::new(&conn);
+
+        // Create metadata without source_file_header
+        let mut sha256 = [0u8; 32];
+        sha256[0] = 0xBB;
+        let metadata = RomMetadata {
+            rom_type: RomType::Nes,
+            sha256,
+            filename: Some("test.nes".to_string()),
+            nes_header: None,
+            source_file_header: None,
+        };
+        let node_meta = make_node_metadata("Test ROM");
+        repo.insert_node(&metadata, &node_meta).unwrap();
+
+        let node = repo
+            .get_node_by_hash(&sha256)
+            .unwrap()
+            .expect("Node should exist");
+
+        assert!(node.source_file_header.is_none());
     }
 }

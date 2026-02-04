@@ -4,7 +4,7 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::error::{DromosError, Result};
-use crate::rom::nes::{parse_nes_header, skip_trainer_if_present};
+use crate::rom::nes::{parse_nes_header_bytes, skip_trainer_if_present};
 use crate::rom::types::{RomMetadata, RomType};
 
 /// Hash bytes directly using SHA-256. Pure function for testability.
@@ -44,7 +44,11 @@ pub fn hash_rom_file(path: &Path) -> Result<RomMetadata> {
 
     match detect_rom_type(path) {
         Some(RomType::Nes) => {
-            match parse_nes_header(&mut reader)? {
+            // Read raw header bytes first
+            let mut header_bytes = [0u8; 16];
+            reader.read_exact(&mut header_bytes)?;
+
+            match parse_nes_header_bytes(&header_bytes) {
                 Some(header) => {
                     skip_trainer_if_present(&mut reader, &header)?;
                     let sha256 = hash_remaining(&mut reader)?;
@@ -54,6 +58,7 @@ pub fn hash_rom_file(path: &Path) -> Result<RomMetadata> {
                         sha256,
                         filename,
                         nes_header: Some(header),
+                        source_file_header: Some(header_bytes.to_vec()),
                     })
                 }
                 None => {
@@ -91,17 +96,23 @@ pub fn read_rom_bytes(path: &Path) -> Result<Vec<u8>> {
     let mut reader = BufReader::new(file);
 
     match detect_rom_type(path) {
-        Some(RomType::Nes) => match parse_nes_header(&mut reader)? {
-            Some(header) => {
-                skip_trainer_if_present(&mut reader, &header)?;
-                let mut bytes = Vec::new();
-                reader.read_to_end(&mut bytes)?;
-                Ok(bytes)
+        Some(RomType::Nes) => {
+            // Read raw header bytes
+            let mut header_bytes = [0u8; 16];
+            reader.read_exact(&mut header_bytes)?;
+
+            match parse_nes_header_bytes(&header_bytes) {
+                Some(header) => {
+                    skip_trainer_if_present(&mut reader, &header)?;
+                    let mut bytes = Vec::new();
+                    reader.read_to_end(&mut bytes)?;
+                    Ok(bytes)
+                }
+                None => Err(DromosError::InvalidNesFile {
+                    path: path.to_path_buf(),
+                }),
             }
-            None => Err(DromosError::InvalidNesFile {
-                path: path.to_path_buf(),
-            }),
-        },
+        }
         None => {
             // For unknown types, read the whole file
             reader.seek(SeekFrom::Start(0))?;

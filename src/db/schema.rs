@@ -9,6 +9,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         M::up(include_str!("../../migrations/002_add_title.sql")),
         M::up(include_str!("../../migrations/003_nes_header_fields.sql")),
         M::up(include_str!("../../migrations/004_metadata_fields.sql")),
+        M::up(include_str!("../../migrations/005_source_file_header.sql")),
     ]);
 
     migrations.to_latest(conn)?;

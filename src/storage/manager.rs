@@ -425,6 +425,15 @@ mod tests {
     fn make_metadata(hash_byte: u8, filename: &str) -> RomMetadata {
         let mut sha256 = [0u8; 32];
         sha256[0] = hash_byte;
+        // Create a test header: 2 PRG banks (32KB), 1 CHR bank (8KB), mapper 4, vertical mirroring, battery
+        let header_bytes = vec![
+            b'N', b'E', b'S', 0x1A, // Magic
+            2,    // PRG ROM size (2 x 16KB = 32KB)
+            1,    // CHR ROM size (1 x 8KB = 8KB)
+            0x43, // Flags 6: mapper lo=4, vertical, battery
+            0x00, // Flags 7: mapper hi=0
+            0, 0, 0, 0, 0, 0, 0, 0, // Padding
+        ];
         RomMetadata {
             rom_type: RomType::Nes,
             sha256,
@@ -439,6 +448,7 @@ mod tests {
                 is_nes2: false,
                 submapper: None,
             }),
+            source_file_header: Some(header_bytes),
         }
     }
 

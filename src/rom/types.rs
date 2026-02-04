@@ -74,6 +74,8 @@ pub struct RomMetadata {
     pub sha256: [u8; 32],
     pub filename: Option<String>,
     pub nes_header: Option<NesHeader>,
+    /// Raw file header bytes for byte-identical reconstruction
+    pub source_file_header: Option<Vec<u8>>,
 }
 
 #[cfg(test)]

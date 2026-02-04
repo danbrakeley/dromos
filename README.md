@@ -82,12 +82,16 @@ cargo fmt            # Format code
 
 ## TODO
 
+- remove old fields for parsed header
+- for development, add a data revision number to the code and store it in the DB, and if on migration we see the data revision has increased, then wipe the database and the diffs clean, and apply the migrations fresh. Make a note about this in CLAUDE.md, and whenever we increase the data revision number, we should also collapse the migrations into a single migration. Once we reach a stable state, we will stop doing this, but for now, we shouldn't be worried about backwards compatibility. Add a warning about this to the README, that the data storage is unstable until we reach release version 1.0.
 - more metadata: author, author_url
+- edit header data? or at least export/import?
 - colorized output
 - build requires a starting rom; should we support storing that in the database?
 
 ## DONE
 
+- Store raw file headers for byte-identical ROM reconstruction (see ADR-0004)
 - Version displayed in brackets after title throughout the interface (e.g., "Super Mario Bros [1.0]")
 - Edit command to modify metadata for existing ROMs
 - ROM metadata fields: source URL, version, release date, tags, and multi-line description

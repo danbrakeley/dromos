@@ -132,6 +132,16 @@ pub fn reconstruct_nes_file(header: &NesHeader, rom_bytes: &[u8]) -> Vec<u8> {
     file
 }
 
+/// Reconstruct a NES file using the original raw header bytes.
+/// This guarantees byte-identical output compared to the original file
+/// (excluding trainer data which is stripped during hashing).
+pub fn reconstruct_nes_file_raw(header_raw: &[u8], rom_bytes: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(header_raw.len() + rom_bytes.len());
+    result.extend_from_slice(header_raw);
+    result.extend_from_slice(rom_bytes);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +341,43 @@ mod tests {
         assert_eq!(file.len(), 16 + rom_bytes.len());
         assert_eq!(&file[0..4], b"NES\x1a");
         assert_eq!(&file[16..], rom_bytes.as_slice());
+    }
+
+    #[test]
+    fn test_reconstruct_nes_file_raw() {
+        // Create a raw header with some specific byte pattern
+        let header_raw = make_ines_header(2, 1, 0x43, 0x00); // mapper 4, vertical, battery
+        let rom_bytes = vec![0xBB; 32 * 1024 + 8 * 1024]; // PRG + CHR
+
+        let file = reconstruct_nes_file_raw(&header_raw, &rom_bytes);
+
+        assert_eq!(file.len(), 16 + rom_bytes.len());
+        // Verify the raw header is preserved exactly
+        assert_eq!(&file[0..16], &header_raw);
+        assert_eq!(&file[16..], rom_bytes.as_slice());
+    }
+
+    #[test]
+    fn test_reconstruct_nes_file_raw_preserves_bytes() {
+        // Test that arbitrary header bytes are preserved (including edge cases)
+        let mut header_raw = [0u8; 16];
+        header_raw[0..4].copy_from_slice(b"NES\x1a");
+        header_raw[4] = 1; // PRG
+        header_raw[5] = 0; // CHR
+        // Put some arbitrary bytes in the padding area (bytes 8-15)
+        header_raw[8] = 0xDE;
+        header_raw[9] = 0xAD;
+        header_raw[10] = 0xBE;
+        header_raw[11] = 0xEF;
+
+        let rom_bytes = vec![0x00; 16 * 1024];
+        let file = reconstruct_nes_file_raw(&header_raw, &rom_bytes);
+
+        // Verify padding bytes are preserved exactly
+        assert_eq!(file[8], 0xDE);
+        assert_eq!(file[9], 0xAD);
+        assert_eq!(file[10], 0xBE);
+        assert_eq!(file[11], 0xEF);
     }
 
     #[test]
