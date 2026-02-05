@@ -55,6 +55,7 @@ impl ReplState {
             Command::Quit => return Ok(false),
             Command::Help => self.print_help(),
             Command::Hash { file } => self.cmd_hash(&file)?,
+            Command::Check { file } => self.cmd_check(&file)?,
             Command::Add { file } => self.cmd_add(&file, rl)?,
             Command::Build { source, target } => self.cmd_build(&source, &target, rl)?,
             Command::Edit { target } => self.cmd_edit(&target, rl)?,
@@ -71,6 +72,7 @@ impl ReplState {
         println!("Commands:");
         println!("  add <file>              Add a ROM to the database");
         println!("  build <source> <hash>   Build a ROM by applying diffs from source to target");
+        println!("  check <file>            Check if a ROM is in the database");
         println!("  edit <hash>             Edit metadata for a ROM");
         println!("  link <file1> [file2]    Create bidirectional links between ROMs");
         println!("  links <file|hash>       Show all links for a ROM");
@@ -92,6 +94,55 @@ impl ReplState {
             println!("PRG ROM: {} KB", header.prg_rom_size / 1024);
             println!("CHR ROM: {} KB", header.chr_rom_size / 1024);
             println!("Trainer: {}", if header.has_trainer { "Yes" } else { "No" });
+        }
+
+        Ok(())
+    }
+
+    fn cmd_check(&self, file: &Path) -> Result<()> {
+        // Check if file exists
+        if !file.exists() {
+            eprintln!("File not found: {}", file.display());
+            return Ok(());
+        }
+
+        // Hash the file and get metadata
+        let metadata = hash_rom_file(file)?;
+        let hash_str = format_hash(&metadata.sha256);
+
+        // Print the hash
+        println!("Hash: {}", hash_str);
+        println!("Type: {}", metadata.rom_type);
+
+        // Look up in database
+        match self.storage.get_node_by_hash(&metadata.sha256) {
+            Some(node) => {
+                // Found in database - show title/version
+                let display_title = format_display_title(&node.title, node.version.as_deref());
+                println!("Found: {}", display_title);
+
+                // Compare headers if file has one
+                if let Some(ref file_header) = metadata.source_file_header {
+                    // Get full NodeRow from database (has stored header)
+                    if let Ok(Some(node_row)) = self.storage.get_node_row_by_hash(&metadata.sha256)
+                    {
+                        match &node_row.source_file_header {
+                            Some(stored_header) if stored_header == file_header => {
+                                println!("Header: matches stored");
+                            }
+                            Some(_) => {
+                                println!("Header: DIFFERS from stored");
+                            }
+                            None => {
+                                println!("Header: (no stored header to compare)");
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                println!("Status: not in database");
+            }
         }
 
         Ok(())

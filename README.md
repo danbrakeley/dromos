@@ -27,6 +27,7 @@ dromos> help
 Commands:
   add <file>              Add a ROM to the database
   build <source> <hash>   Build a ROM by applying diffs from source to target
+  check <file>            Check if a ROM is in the database
   edit <hash>             Edit metadata for a ROM
   link <file1> [file2]    Create bidirectional links between ROMs
   links <file|hash>       Show all links for a ROM
@@ -91,6 +92,7 @@ cargo fmt            # Format code
 
 ## DONE
 
+- Check command to verify if a ROM is in the database and compare headers
 - Store raw file headers for byte-identical ROM reconstruction (see ADR-0004)
 - Version displayed in brackets after title throughout the interface (e.g., "Super Mario Bros [1.0]")
 - Edit command to modify metadata for existing ROMs

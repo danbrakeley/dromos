@@ -11,6 +11,7 @@ pub enum Command {
     Rm { target: String },
     Search { query: String },
     Hash { file: PathBuf },
+    Check { file: PathBuf },
     Help,
     Quit,
 }
@@ -104,6 +105,15 @@ impl Command {
                     Err("Usage: hash <file>".to_string())
                 } else {
                     Ok(Command::Hash {
+                        file: PathBuf::from(&args[0]),
+                    })
+                }
+            }
+            "check" => {
+                if args.is_empty() {
+                    Err("Usage: check <file>".to_string())
+                } else {
+                    Ok(Command::Check {
                         file: PathBuf::from(&args[0]),
                     })
                 }
