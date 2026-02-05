@@ -70,6 +70,10 @@ Super Game [USA, Rev 0]  (abc12345...)
 dromos> quit
 ```
 
+## Development Warning
+
+Data storage format is unstable until version 1.0. Your database and diffs may be automatically wiped when upgrading to newer development versions. Do not store important data in dromos until a stable release.
+
 ## Development
 
 ```bash
@@ -84,7 +88,6 @@ cargo fmt            # Format code
 ## TODO
 
 - remove old fields for parsed header
-- for development, add a data revision number to the code and store it in the DB, and if on migration we see the data revision has increased, then wipe the database and the diffs clean, and apply the migrations fresh. Make a note about this in CLAUDE.md, and whenever we increase the data revision number, we should also collapse the migrations into a single migration. Once we reach a stable state, we will stop doing this, but for now, we shouldn't be worried about backwards compatibility. Add a warning about this to the README, that the data storage is unstable until we reach release version 1.0.
 - more metadata: author, author_url
 - edit header data? or at least export/import?
 - colorized output
@@ -92,6 +95,7 @@ cargo fmt            # Format code
 
 ## DONE
 
+- Data revision system for automatic database/diffs wipe on schema changes (see CLAUDE.md)
 - Check command to verify if a ROM is in the database and compare headers
 - Store raw file headers for byte-identical ROM reconstruction (see ADR-0004)
 - Version displayed in brackets after title throughout the interface (e.g., "Super Mario Bros [1.0]")

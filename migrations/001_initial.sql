@@ -2,11 +2,23 @@ CREATE TABLE nodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sha256 TEXT NOT NULL UNIQUE,
     filename TEXT,
+    title TEXT,
     rom_type TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     prg_rom_size INTEGER,
     chr_rom_size INTEGER,
-    has_trainer INTEGER
+    has_trainer INTEGER,
+    mapper INTEGER,
+    mirroring INTEGER,
+    has_battery INTEGER,
+    is_nes2 INTEGER,
+    nes2_submapper INTEGER,
+    source_url TEXT,
+    version TEXT,
+    release_date TEXT,
+    tags TEXT,
+    description TEXT,
+    source_file_header BLOB
 );
 
 CREATE TABLE edges (
@@ -17,6 +29,11 @@ CREATE TABLE edges (
     diff_size INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(source_id, target_id)
+);
+
+CREATE TABLE dromos_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE INDEX idx_nodes_sha256 ON nodes(sha256);

@@ -3,7 +3,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::StorageConfig;
-use crate::db::{NodeMetadata, NodeRow, Repository, run_migrations};
+use crate::db::{
+    DATA_REVISION, NodeMetadata, NodeRow, Repository, get_stored_data_revision, has_existing_data,
+    run_migrations, set_data_revision,
+};
 use crate::diff;
 use crate::error::{DromosError, Result};
 use crate::graph::{DiffEdge, PathStep, RomGraph, RomNode};
@@ -33,8 +36,48 @@ impl StorageManager {
     pub fn open(config: StorageConfig) -> Result<Self> {
         config.ensure_dirs_exist()?;
 
+        // Check if we need to wipe existing data due to revision change
+        let db_exists = config.db_path.exists();
+        if db_exists {
+            let conn = Connection::open(&config.db_path)?;
+            let stored_revision = get_stored_data_revision(&conn);
+            let has_data = has_existing_data(&conn);
+            drop(conn); // Close connection before potential delete
+
+            // Wipe if: revision mismatch OR (has data but no revision = legacy DB)
+            let needs_wipe = match stored_revision {
+                Some(rev) => rev < DATA_REVISION,
+                None => has_data, // Legacy DB without dromos_meta
+            };
+
+            if needs_wipe {
+                eprintln!(
+                    "Data revision changed (stored: {}, current: {}). Wiping database and diffs.",
+                    stored_revision
+                        .map(|r| r.to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    DATA_REVISION
+                );
+
+                // Delete database file
+                fs::remove_file(&config.db_path)?;
+
+                // Delete all files in diffs directory
+                if config.diffs_dir.exists() {
+                    for entry in fs::read_dir(&config.diffs_dir)? {
+                        let entry = entry?;
+                        if entry.file_type()?.is_file() {
+                            fs::remove_file(entry.path())?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Open (or create fresh) database
         let mut conn = Connection::open(&config.db_path)?;
         run_migrations(&mut conn)?;
+        set_data_revision(&conn, DATA_REVISION)?;
 
         let mut manager = StorageManager {
             conn,

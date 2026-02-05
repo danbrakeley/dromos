@@ -38,6 +38,17 @@ See `docs/decisions/` for formal records. Informal/minor decisions can be noted 
 - **Storage locations**: Platform-specific via `directories` crate (`%APPDATA%\dromos\data\` on Windows)
 - **Diff storage**: Stored as files in `diffs/` directory (not database BLOBs)
 
+## Data Revision System
+
+During development, data storage format may change in backwards-incompatible ways. The `DATA_REVISION` constant in `src/db/schema.rs` tracks this. When you increment it:
+
+1. Increment `DATA_REVISION` in `src/db/schema.rs`
+2. Collapse all migrations into `migrations/001_initial.sql`
+3. Delete migration files 002+
+4. Update the `Migrations::new(vec![...])` to only include 001
+
+On next startup, dromos will detect the revision change and automatically wipe the database and diffs.
+
 ## Conventions
 
 - Module structure: `cli/`, `rom/`, `db/`, `graph/`, `storage/`, `diff/`
