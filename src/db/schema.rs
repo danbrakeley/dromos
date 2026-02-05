@@ -5,7 +5,7 @@ use crate::error::Result;
 
 /// Data revision number. Increment this to wipe all data on next startup.
 /// When incrementing, also collapse all migrations into 001_initial.sql.
-pub const DATA_REVISION: u32 = 1;
+pub const DATA_REVISION: u32 = 2;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     let migrations = Migrations::new(vec![M::up(include_str!(

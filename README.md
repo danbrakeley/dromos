@@ -87,7 +87,6 @@ cargo fmt            # Format code
 
 ## TODO
 
-- remove old fields for parsed header
 - more metadata: author, author_url
 - edit header data? or at least export/import?
 - colorized output
@@ -95,6 +94,7 @@ cargo fmt            # Format code
 
 ## DONE
 
+- Drop unused columns for parsed headers from database (prg_rom_size, chr_rom_size, etc.)
 - Data revision system for automatic database/diffs wipe on schema changes (see CLAUDE.md)
 - Check command to verify if a ROM is in the database and compare headers
 - Store raw file headers for byte-identical ROM reconstruction (see ADR-0004)
