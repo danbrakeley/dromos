@@ -55,6 +55,32 @@ On next startup, dromos will detect the revision change and automatically wipe t
 - Error handling: `thiserror` with `DromosError` enum in `error.rs`
 - Hash display: First 16 hex chars for short display, full 64 for identification
 - Title display: Use `format_display_title(title, version)` to show `"Title [version]"` consistently
+- Colorized output: Use `theme::` functions from `src/cli/theme.rs` (respects `NO_COLOR` and TTY detection)
+
+## Colorized Output
+
+All terminal colors are handled through `src/cli/theme.rs`. This module respects the `NO_COLOR` environment variable and TTY detection.
+
+### Available Theme Functions
+
+| Function         | Color             | Use For                                  |
+| ---------------- | ----------------- | ---------------------------------------- |
+| **Semantic**     |                   |                                          |
+| `error()`        | red               | Error messages                           |
+| `warning()`      | yellow            | Warnings                                 |
+| `success()`      | green             | Success confirmations                    |
+| `info()`         | cyan              | Informational messages                   |
+| **Data Display** |                   |                                          |
+| `title()`        | bright white      | ROM titles                               |
+| `label()`        | yellow            | Categorical labels (ROM type)            |
+| `meta()`         | cyan              | Secondary metadata (version, link count) |
+| **Chrome**       |                   |                                          |
+| `prompt()`       | bright blue, bold | Input prompts                            |
+| `dim()`          | dark grey         | De-emphasized text                       |
+| `header()`       | bold              | Section headers                          |
+| **Helpers**      |                   |                                          |
+| `styled_hash()`  | blue + dark blue  | Hash with "..." suffix                   |
+| `print_banner()` | —                 | Startup logo with version/build date     |
 
 ## Key Data Structures
 
@@ -161,7 +187,7 @@ For database operations, add methods bottom-up:
 - **Confirmation prompts**: For destructive ops, prompt `[y/N]` and check for `"y"` or `"yes"`
 - **Output format**: `"Title [version]  hash...  Type  [N links]"` for node listings
 - **Title display**: Always use `format_display_title(&node.title, node.version.as_deref())` for consistent output
-- **Error handling**: Return `Ok(())` after printing error with `eprintln!`, reserve `Err` for unexpected failures
+- **Error handling**: Return `Ok(())` after printing error with `eprintln!("{}", theme::error("message"))`, reserve `Err` for unexpected failures
 - **Last added tracking**: Update `self.last_added` when adding nodes; clear it if removed
 - **Adding ROMs**: Use `ensure_rom_added()` helper - handles existence check, metadata prompting, and database insertion
 
@@ -198,12 +224,12 @@ fn cmd_foo(&self, target: &str) -> Result<()> {
     let node = match self.storage.find_node_by_hash_prefix(target) {
         Some(n) => n,
         None => {
-            eprintln!("ROM not found: {}", target);
+            eprintln!("{}", theme::error(&format!("ROM not found: {}", target)));
             return Ok(());
         }
     };
     let display = format_display_title(&node.title, node.version.as_deref());
-    println!("Found: {}", display);
+    println!("Found: {}", theme::title(&display));
     Ok(())
 }
 ```

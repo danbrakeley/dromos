@@ -14,6 +14,7 @@ use crate::storage::StorageManager;
 use super::Command;
 use super::completer::DromosHelper;
 use super::multiline::edit_multiline;
+use super::theme;
 
 pub struct ReplState {
     pub storage: StorageManager,
@@ -67,7 +68,7 @@ impl ReplState {
     }
 
     fn print_help(&self) {
-        println!("Commands:");
+        println!("{}", theme::header("Commands:"));
         println!("  add <file>              Add a ROM to the database");
         println!("  build <source> <hash>   Build a ROM by applying diffs from source to target");
         println!("  check <file>            Check if a ROM is in the database");
@@ -100,7 +101,7 @@ impl ReplState {
     fn cmd_check(&self, file: &Path) -> Result<()> {
         // Check if file exists
         if !file.exists() {
-            eprintln!("File not found: {}", file.display());
+            eprintln!("{} {}", theme::error("File not found:"), file.display());
             return Ok(());
         }
 
@@ -117,7 +118,7 @@ impl ReplState {
             Some(node) => {
                 // Found in database - show title/version
                 let display_title = format_display_title(&node.title, node.version.as_deref());
-                println!("Found: {}", display_title);
+                println!("{} {}", theme::success("Found:"), display_title);
 
                 // Compare headers if file has one
                 if let Some(ref file_header) = metadata.source_file_header {
@@ -157,7 +158,7 @@ impl ReplState {
     ) -> Result<Option<AddResult>> {
         // Check if file exists
         if !file.exists() {
-            eprintln!("File not found: {}", file.display());
+            eprintln!("{} {}", theme::error("File not found:"), file.display());
             return Ok(None);
         }
 
@@ -177,7 +178,7 @@ impl ReplState {
 
         // ROM doesn't exist - prompt for metadata and add
         let filename = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-        println!("Adding file {}", filename);
+        println!("{} {}", theme::info("Adding file"), filename);
 
         let default_title = title_from_filename(file);
         let node_metadata = prompt_metadata(rl, &default_title, None)?;
@@ -188,9 +189,10 @@ impl ReplState {
         let display_title =
             format_display_title(&node_metadata.title, node_metadata.version.as_deref());
         println!(
-            "Added: {} ({}...)",
+            "{} {} ({})",
+            theme::success("Added:"),
             display_title,
-            &format_hash(&metadata.sha256)[..16]
+            theme::styled_hash(&format_hash(&metadata.sha256)[..16])
         );
 
         Ok(Some(AddResult {
@@ -214,9 +216,10 @@ impl ReplState {
         if !result.newly_added {
             let display_title = format_display_title(&result.title, result.version.as_deref());
             println!(
-                "ROM already exists: {} ({}...)",
+                "{} {} ({})",
+                theme::info("ROM already exists:"),
                 display_title,
-                &format_hash(&result.hash)[..16]
+                theme::styled_hash(&format_hash(&result.hash)[..16])
             );
             return Ok(());
         }
@@ -239,7 +242,7 @@ impl ReplState {
     ) -> Result<()> {
         // Validate source exists
         if !source.exists() {
-            eprintln!("File not found: {}", source.display());
+            eprintln!("{} {}", theme::error("File not found:"), source.display());
             return Ok(());
         }
 
@@ -247,7 +250,7 @@ impl ReplState {
         let target_node = match self.storage.find_node_by_hash_prefix(target) {
             Some(n) => n,
             None => {
-                eprintln!("Target ROM not found: {}", target);
+                eprintln!("{} {}", theme::error("Target ROM not found:"), target);
                 return Ok(());
             }
         };
@@ -258,15 +261,15 @@ impl ReplState {
 
         // Build the ROM
         let display_title = format_display_title(&target_title, target_version.as_deref());
-        println!("Building {}...", display_title);
+        println!("{} {}...", theme::info("Building"), display_title);
         let result = match self.storage.build_rom(source, &target_hash) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("Build failed: {}", e);
+                eprintln!("{} {}", theme::error("Build failed:"), e);
                 return Ok(());
             }
         };
-        println!("Applied {} diff(s)", result.steps);
+        println!("{} {} diff(s)", theme::info("Applied"), result.steps);
 
         // Prompt for output filename
         let default_name = sanitize_filename(&target_title);
@@ -281,7 +284,10 @@ impl ReplState {
             if let Some(ref raw_header) = result.target_row.source_file_header {
                 reconstruct_nes_file_raw(raw_header, &result.bytes)
             } else {
-                eprintln!("Warning: No header metadata for NES file, writing raw bytes");
+                eprintln!(
+                    "{} No header metadata for NES file, writing raw bytes",
+                    theme::warning("Warning:")
+                );
                 result.bytes
             }
         } else {
@@ -291,7 +297,8 @@ impl ReplState {
         // Write to disk
         std::fs::write(output_path, &final_bytes)?;
         println!(
-            "Wrote {} bytes to {}",
+            "{} {} bytes to {}",
+            theme::success("Wrote"),
             final_bytes.len(),
             output_path.display()
         );
@@ -308,7 +315,7 @@ impl ReplState {
             1 => self.link_to_last(&files[0], rl),
             2 => self.link_two_files(&files[0], &files[1], rl),
             _ => {
-                eprintln!("Usage: link <file1> [file2]");
+                eprintln!("{}", theme::error("Usage: link <file1> [file2]"));
                 Ok(())
             }
         }
@@ -322,7 +329,10 @@ impl ReplState {
         let last = match &self.last_added {
             Some(last) => last.clone(),
             None => {
-                eprintln!("No previous ROM to link to. Use 'link <file1> <file2>' instead.");
+                eprintln!(
+                    "{}",
+                    theme::error("No previous ROM to link to. Use 'link <file1> <file2>' instead.")
+                );
                 return Ok(());
             }
         };
@@ -387,7 +397,12 @@ impl ReplState {
         self.storage.link_nodes(file_a, file_b)?;
         let display_a = format_display_title(&result_a.title, result_a.version.as_deref());
         let display_b = format_display_title(&result_b.title, result_b.version.as_deref());
-        println!("Linked: {} <-> {}", display_a, display_b);
+        println!(
+            "{} {} <-> {}",
+            theme::success("Linked:"),
+            display_a,
+            display_b
+        );
 
         // Update last added to the second file
         self.last_added = Some(LastAdded {
@@ -403,7 +418,7 @@ impl ReplState {
         let (nodes, _edges) = self.storage.list();
 
         if nodes.is_empty() {
-            println!("No ROMs in database.");
+            println!("{}", theme::dim("No ROMs in database."));
             return;
         }
 
@@ -414,20 +429,26 @@ impl ReplState {
         for node in sorted_nodes {
             let link_count = self.storage.link_count(&node.sha256);
             let link_info = if link_count > 0 {
-                format!(
-                    "  [{} link{}]",
+                let text = format!(
+                    "[{} link{}]",
                     link_count,
                     if link_count == 1 { "" } else { "s" }
-                )
+                );
+                format!("  {}", theme::meta(&text))
             } else {
                 String::new()
             };
-            let display_title = format_display_title(&node.title, node.version.as_deref());
+            let styled_title = theme::title(&node.title);
+            let version_part = match node.version.as_deref() {
+                Some(v) if !v.is_empty() => format!(" {}", theme::meta(&format!("[{}]", v))),
+                _ => String::new(),
+            };
             println!(
-                "{}  {}...  {}{}",
-                display_title,
-                &format_hash(&node.sha256)[..16],
-                node.rom_type,
+                "{}{}  {}  {}{}",
+                styled_title,
+                version_part,
+                theme::styled_hash(&format_hash(&node.sha256)[..16]),
+                theme::label(&node.rom_type.to_string()),
                 link_info
             );
         }
@@ -447,7 +468,7 @@ impl ReplState {
         let node = match node {
             Some(n) => n,
             None => {
-                eprintln!("ROM not found: {}", target);
+                eprintln!("{} {}", theme::error("ROM not found:"), target);
                 return Ok(());
             }
         };
@@ -456,9 +477,9 @@ impl ReplState {
 
         let display_title = format_display_title(&node.title, node.version.as_deref());
         println!(
-            "{}  ({}...)",
+            "{}  ({})",
             display_title,
-            &format_hash(&node.sha256)[..16]
+            theme::styled_hash(&format_hash(&node.sha256)[..16])
         );
 
         match neighbors {
@@ -470,7 +491,7 @@ impl ReplState {
                 }
             }
             _ => {
-                println!("  (no links)");
+                println!("  {}", theme::dim("(no links)"));
             }
         }
 
@@ -484,7 +505,7 @@ impl ReplState {
         let node = match node {
             Some(n) => n,
             None => {
-                eprintln!("ROM not found: {}", target);
+                eprintln!("{} {}", theme::error("ROM not found:"), target);
                 return Ok(());
             }
         };
@@ -514,7 +535,8 @@ impl ReplState {
         let result = self.storage.remove_node(&sha256)?;
 
         println!(
-            "Removed: {} ({} edge{}, {} diff file{})",
+            "{} {} ({} edge{}, {} diff file{})",
+            theme::success("Removed:"),
             display_title,
             result.edges_removed,
             if result.edges_removed == 1 { "" } else { "s" },
@@ -546,16 +568,19 @@ impl ReplState {
             .collect();
 
         if matches.is_empty() {
-            println!("No matches found for \"{}\"", query);
+            println!(
+                "{}",
+                theme::dim(&format!("No matches found for \"{}\"", query))
+            );
             return;
         }
 
         for node in matches {
             let display_title = format_display_title(&node.title, node.version.as_deref());
             println!(
-                "{}  {}...  {}",
+                "{}  {}  {}",
                 display_title,
-                &format_hash(&node.sha256)[..16],
+                theme::styled_hash(&format_hash(&node.sha256)[..16]),
                 node.rom_type
             );
         }
@@ -570,7 +595,7 @@ impl ReplState {
         let node = match self.storage.find_node_by_hash_prefix(target) {
             Some(n) => n,
             None => {
-                eprintln!("ROM not found: {}", target);
+                eprintln!("{} {}", theme::error("ROM not found:"), target);
                 return Ok(());
             }
         };
@@ -581,7 +606,7 @@ impl ReplState {
         let node_row = match self.storage.get_node_row_by_hash(&sha256)? {
             Some(r) => r,
             None => {
-                eprintln!("ROM not found in database: {}", target);
+                eprintln!("{} {}", theme::error("ROM not found in database:"), target);
                 return Ok(());
             }
         };
@@ -595,9 +620,10 @@ impl ReplState {
         let display_title =
             format_display_title(&node_metadata.title, node_metadata.version.as_deref());
         println!(
-            "Updated: {} ({}...)",
+            "{} {} ({})",
+            theme::success("Updated:"),
             display_title,
-            &format_hash(&sha256)[..16]
+            theme::styled_hash(&format_hash(&sha256)[..16])
         );
 
         Ok(())
@@ -695,7 +721,10 @@ fn prompt_date(
                 if let Ok(date) = chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
                     Ok(Some(date.format("%Y-%m-%d").to_string()))
                 } else {
-                    eprintln!("Invalid date format, expected YYYY-MM-DD");
+                    eprintln!(
+                        "{} expected YYYY-MM-DD",
+                        theme::error("Invalid date format,")
+                    );
                     Ok(existing.map(String::from))
                 }
             }

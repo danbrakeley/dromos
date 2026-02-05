@@ -89,11 +89,11 @@ cargo fmt            # Format code
 
 - more metadata: author, author_url
 - edit header data? or at least export/import?
-- colorized output
 - build requires a starting rom; should we support storing that in the database?
 
 ## DONE
 
+- Colorized output: startup banner, list command (title, version, hash, type, links), prompts, errors/warnings
 - Drop unused columns for parsed headers from database (prg_rom_size, chr_rom_size, etc.)
 - Data revision system for automatic database/diffs wipe on schema changes (see CLAUDE.md)
 - Check command to verify if a ROM is in the database and compare headers

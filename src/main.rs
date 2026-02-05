@@ -10,12 +10,14 @@ const VERSION: &str = git_version!(
 );
 const BUILD_TIME: &str = env!("BUILD_TIMESTAMP");
 
-use dromos::cli::{Command, DromosHelper, ReplState};
+use dromos::cli::{Command, DromosHelper, ReplState, theme};
 use dromos::config::StorageConfig;
 
 fn main() -> ExitCode {
+    theme::init();
+
     if let Err(e) = run() {
-        eprintln!("Error: {}", e);
+        eprintln!("{} {}", theme::error("Error:"), e);
         return ExitCode::FAILURE;
     }
 
@@ -40,27 +42,25 @@ fn run() -> dromos::Result<()> {
         let _ = rl.load_history(path);
     }
 
-    println!(r"     _                               ");
-    println!(r"  __| |_ __ ___  _ __ ___   ___  ___ ");
-    println!(r" / _` | '__/ _ \| '_ ` _ \ / _ \/ __|");
-    println!(r"| (_| | | | (_) | | | | | | (_) \__ \  {VERSION}");
-    println!(r" \__,_|_|  \___/|_| |_| |_|\___/|___/  {BUILD_TIME}");
+    theme::print_banner(VERSION, BUILD_TIME);
     println!();
     println!("  - type a command, e.g. \"help\" or \"exit\"");
     println!("  - press tab for autocomplete, and up/down for history");
 
+    let prompt_str = format!("\n{}> ", theme::prompt("dromos"));
+
     loop {
-        match rl.readline("\ndromos> ") {
+        match rl.readline(&prompt_str) {
             Ok(line) => {
                 let _ = rl.add_history_entry(&line);
 
                 match Command::parse(&line) {
                     None => continue, // Empty line
-                    Some(Err(e)) => eprintln!("{}", e),
+                    Some(Err(e)) => eprintln!("{}", theme::error(&e)),
                     Some(Ok(cmd)) => match state.execute(cmd, &mut rl) {
                         Ok(true) => {}      // Continue
                         Ok(false) => break, // Quit requested
-                        Err(e) => eprintln!("Error: {}", e),
+                        Err(e) => eprintln!("{} {}", theme::error("Error:"), e),
                     },
                 }
             }
@@ -72,7 +72,7 @@ fn run() -> dromos::Result<()> {
                 break;
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                eprintln!("{} {}", theme::error("Error:"), e);
                 break;
             }
         }
