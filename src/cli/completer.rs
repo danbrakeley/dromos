@@ -4,6 +4,7 @@ use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{Context, Helper};
+use std::borrow::Cow;
 
 /// Helper for rustyline that provides command and filename completion.
 pub struct DromosHelper {
@@ -28,7 +29,19 @@ impl Helper for DromosHelper {}
 impl Hinter for DromosHelper {
     type Hint = String;
 }
-impl Highlighter for DromosHelper {}
+impl Highlighter for DromosHelper {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        default: bool,
+    ) -> Cow<'b, str> {
+        if default && prompt == "\ndromos> " {
+            Cow::Owned(format!("\n{}> ", super::theme::prompt("dromos")))
+        } else {
+            Cow::Borrowed(prompt)
+        }
+    }
+}
 impl Validator for DromosHelper {}
 
 /// Commands that accept file path arguments.

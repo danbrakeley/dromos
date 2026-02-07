@@ -47,10 +47,10 @@ fn run() -> dromos::Result<()> {
     println!("  - type a command, e.g. \"help\" or \"exit\"");
     println!("  - press tab for autocomplete, and up/down for history");
 
-    let prompt_str = format!("\n{}> ", theme::prompt("dromos"));
+    let prompt_str = "\ndromos> ";
 
     loop {
-        match rl.readline(&prompt_str) {
+        match rl.readline(prompt_str) {
             Ok(line) => {
                 let _ = rl.add_history_entry(&line);
 
