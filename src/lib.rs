@@ -3,6 +3,7 @@ pub mod config;
 pub mod db;
 pub mod diff;
 pub mod error;
+pub mod exchange;
 pub mod graph;
 pub mod rom;
 pub mod storage;

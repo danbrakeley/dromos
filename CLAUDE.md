@@ -51,7 +51,7 @@ On next startup, dromos will detect the revision change and automatically wipe t
 
 ## Conventions
 
-- Module structure: `cli/`, `rom/`, `db/`, `graph/`, `storage/`, `diff/`
+- Module structure: `cli/`, `rom/`, `db/`, `graph/`, `storage/`, `diff/`, `exchange/`
 - Error handling: `thiserror` with `DromosError` enum in `error.rs`
 - Hash display: First 16 hex chars for short display, full 64 for identification
 - Title display: Use `format_display_title(title, version)` to show `"Title [version]"` consistently
@@ -233,6 +233,48 @@ fn cmd_foo(&self, target: &str) -> Result<()> {
     Ok(())
 }
 ```
+
+## Export/Import Format
+
+The `exchange/` module handles portable export folders for sharing ROM collections.
+
+### Folder Structure
+
+```text
+my-export/
+├── index.json
+└── diffs/
+    ├── abcdef01_12345678.bsdiff
+    └── ...
+```
+
+### `index.json` Schema
+
+```json
+{
+  "dromos_export": { "version": 1, "data_revision": 2, "exported_at": "..." },
+  "files": [{ "sha256": "...", "title": "...", "rom_type": "NES", ... }],
+  "diffs": [{ "source_sha256": "...", "target_sha256": "...", "diff_path": "...", "diff_size": 1234, "sha256": "..." }]
+}
+```
+
+- `files`: array of ROM node metadata
+- `diffs`: array of diff edges; each entry includes a `sha256` field with the hex-encoded SHA-256 hash of the `.bsdiff` file for integrity verification
+
+### Module Layout (`src/exchange/`)
+
+| File        | Purpose                                                      |
+| ----------- | ------------------------------------------------------------ |
+| `mod.rs`    | Module declarations and re-exports                           |
+| `format.rs` | Serde structs (`ExportManifest`, `ExportNode`, `ExportEdge`) |
+| `export.rs` | `write_folder()` — writes folder from DB/graph data          |
+| `import.rs` | `analyze_import()` + `execute_import()` — two-phase import   |
+
+### Import Flow
+
+1. **Analyze**: Parse folder's `index.json`, compare nodes against local DB, identify conflicts (differing metadata fields)
+2. **Prompt**: Show conflicts to user, ask whether to overwrite
+3. **Execute**: Insert new nodes, optionally overwrite conflicts, insert edges (skip duplicates), copy diff files (with SHA-256 verification)
 
 ## Testing
 

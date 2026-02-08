@@ -2,16 +2,42 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub enum Command {
-    Add { file: PathBuf },
-    Build { source: PathBuf, target: String },
-    Edit { target: String },
-    Link { files: Vec<PathBuf> },
-    Links { target: String },
+    Add {
+        file: PathBuf,
+    },
+    Build {
+        source: PathBuf,
+        target: String,
+    },
+    Edit {
+        target: String,
+    },
+    Link {
+        files: Vec<PathBuf>,
+    },
+    Links {
+        target: String,
+    },
     List,
-    Rm { target: String },
-    Search { query: String },
-    Hash { file: PathBuf },
-    Check { file: PathBuf },
+    Rm {
+        target: String,
+    },
+    Search {
+        query: String,
+    },
+    Hash {
+        file: PathBuf,
+    },
+    Check {
+        file: PathBuf,
+    },
+    Export {
+        hash_prefix: Option<String>,
+        output: PathBuf,
+    },
+    Import {
+        input: PathBuf,
+    },
     Help,
     Quit,
 }
@@ -115,6 +141,30 @@ impl Command {
                 } else {
                     Ok(Command::Check {
                         file: PathBuf::from(&args[0]),
+                    })
+                }
+            }
+            "export" => {
+                if args.is_empty() {
+                    Err("Usage: export [hash] <folder>".to_string())
+                } else if args.len() == 1 {
+                    Ok(Command::Export {
+                        hash_prefix: None,
+                        output: PathBuf::from(&args[0]),
+                    })
+                } else {
+                    Ok(Command::Export {
+                        hash_prefix: Some(args[0].clone()),
+                        output: PathBuf::from(&args[1]),
+                    })
+                }
+            }
+            "import" => {
+                if args.is_empty() {
+                    Err("Usage: import <folder>".to_string())
+                } else {
+                    Ok(Command::Import {
+                        input: PathBuf::from(&args[0]),
                     })
                 }
             }

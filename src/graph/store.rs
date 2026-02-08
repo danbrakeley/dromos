@@ -1,6 +1,7 @@
+use petgraph::Direction;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::rom::RomType;
 
@@ -150,6 +151,33 @@ impl RomGraph {
             }
         }
         None
+    }
+
+    /// Find all nodes reachable from `start` treating edges as bidirectional.
+    /// Uses BFS following both outgoing and incoming edges.
+    pub fn connected_component(&self, start: NodeIndex) -> HashSet<NodeIndex> {
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        visited.insert(start);
+        queue.push_back(start);
+
+        while let Some(current) = queue.pop_front() {
+            for edge_ref in self.graph.edges_directed(current, Direction::Outgoing) {
+                let neighbor = edge_ref.target();
+                if visited.insert(neighbor) {
+                    queue.push_back(neighbor);
+                }
+            }
+            for edge_ref in self.graph.edges_directed(current, Direction::Incoming) {
+                let neighbor = edge_ref.source();
+                if visited.insert(neighbor) {
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        visited
     }
 
     fn reconstruct_path(
@@ -349,6 +377,81 @@ mod tests {
         assert_eq!(graph.node_count(), 0);
         assert!(graph.get_node_by_hash(&sha256).is_none());
         assert!(graph.get_node_by_db_id(1).is_none());
+    }
+
+    #[test]
+    fn test_connected_component_single_node() {
+        let mut graph = RomGraph::new();
+        let node = make_node(1, 0xAA, "ROM A");
+        let idx = graph.add_node(node);
+
+        let component = graph.connected_component(idx);
+        assert_eq!(component.len(), 1);
+        assert!(component.contains(&idx));
+    }
+
+    #[test]
+    fn test_connected_component_chain() {
+        let mut graph = RomGraph::new();
+        let idx_a = graph.add_node(make_node(1, 0xAA, "ROM A"));
+        let idx_b = graph.add_node(make_node(2, 0xBB, "ROM B"));
+        let idx_c = graph.add_node(make_node(3, 0xCC, "ROM C"));
+
+        // A -> B -> C (one-way edges)
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+        graph.add_edge(idx_b, idx_c, make_edge(2, "b_to_c.bsdiff"));
+
+        // Starting from any node should find all three (bidirectional traversal)
+        let component = graph.connected_component(idx_a);
+        assert_eq!(component.len(), 3);
+        assert!(component.contains(&idx_a));
+        assert!(component.contains(&idx_b));
+        assert!(component.contains(&idx_c));
+
+        let component_c = graph.connected_component(idx_c);
+        assert_eq!(component_c.len(), 3);
+    }
+
+    #[test]
+    fn test_connected_component_two_separate() {
+        let mut graph = RomGraph::new();
+        let idx_a = graph.add_node(make_node(1, 0xAA, "ROM A"));
+        let idx_b = graph.add_node(make_node(2, 0xBB, "ROM B"));
+        let idx_c = graph.add_node(make_node(3, 0xCC, "ROM C"));
+        let idx_d = graph.add_node(make_node(4, 0xDD, "ROM D"));
+
+        // Component 1: A <-> B
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+        // Component 2: C <-> D
+        graph.add_edge(idx_c, idx_d, make_edge(2, "c_to_d.bsdiff"));
+
+        let comp_a = graph.connected_component(idx_a);
+        assert_eq!(comp_a.len(), 2);
+        assert!(comp_a.contains(&idx_a));
+        assert!(comp_a.contains(&idx_b));
+        assert!(!comp_a.contains(&idx_c));
+
+        let comp_c = graph.connected_component(idx_c);
+        assert_eq!(comp_c.len(), 2);
+        assert!(comp_c.contains(&idx_c));
+        assert!(comp_c.contains(&idx_d));
+    }
+
+    #[test]
+    fn test_connected_component_undirected_traversal() {
+        let mut graph = RomGraph::new();
+        let idx_a = graph.add_node(make_node(1, 0xAA, "ROM A"));
+        let idx_b = graph.add_node(make_node(2, 0xBB, "ROM B"));
+        let idx_c = graph.add_node(make_node(3, 0xCC, "ROM C"));
+
+        // Only one-way edges: A -> B, C -> B
+        // B has no outgoing edges, but should still be reachable from A via incoming on C
+        graph.add_edge(idx_a, idx_b, make_edge(1, "a_to_b.bsdiff"));
+        graph.add_edge(idx_c, idx_b, make_edge(2, "c_to_b.bsdiff"));
+
+        // Starting from A: A -> B (outgoing), B <- C (incoming on B), so all connected
+        let component = graph.connected_component(idx_a);
+        assert_eq!(component.len(), 3);
     }
 
     #[test]

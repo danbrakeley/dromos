@@ -41,6 +41,15 @@ pub enum DromosError {
 
     #[error("No path from {from} to {to}")]
     NoPath { from: String, to: String },
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Export error: {0}")]
+    Export(String),
+
+    #[error("Import error: {0}")]
+    Import(String),
 }
 
 pub type Result<T> = std::result::Result<T, DromosError>;

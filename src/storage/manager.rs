@@ -9,6 +9,7 @@ use crate::db::{
 };
 use crate::diff;
 use crate::error::{DromosError, Result};
+use crate::exchange;
 use crate::graph::{DiffEdge, PathStep, RomGraph, RomNode};
 use crate::rom::{RomMetadata, format_hash, hash_rom_file, read_rom_bytes};
 
@@ -248,6 +249,12 @@ impl StorageManager {
         (nodes, edges)
     }
 
+    /// Count nodes in the connected component containing a node
+    pub fn connected_component_count(&self, sha256: &[u8; 32]) -> Option<usize> {
+        let idx = self.graph.get_node_by_hash(sha256)?;
+        Some(self.graph.connected_component(idx).len())
+    }
+
     /// Count outgoing links for a node
     pub fn link_count(&self, sha256: &[u8; 32]) -> usize {
         self.graph
@@ -365,6 +372,52 @@ impl StorageManager {
             target_row,
             steps: path.len() - 1,
         })
+    }
+
+    /// Export nodes/edges to a folder.
+    /// If `component_hash` is provided, exports only the connected component.
+    pub fn export(
+        &self,
+        output_path: &Path,
+        component_hash: Option<&[u8; 32]>,
+        on_conflict: &mut impl FnMut(&Path) -> Result<exchange::OverwriteAction>,
+    ) -> Result<exchange::ExportStats> {
+        let repo = Repository::new(&self.conn);
+        exchange::write_folder(
+            output_path,
+            &repo,
+            &self.graph,
+            &self.config.diffs_dir,
+            component_hash,
+            on_conflict,
+        )
+    }
+
+    /// Analyze an export folder for conflicts before importing.
+    pub fn analyze_import(
+        &self,
+        folder_path: &Path,
+    ) -> Result<(exchange::ExportManifest, Vec<exchange::NodeConflict>)> {
+        let repo = Repository::new(&self.conn);
+        exchange::analyze_import(folder_path, &repo)
+    }
+
+    /// Execute import from an export folder.
+    pub fn execute_import(
+        &mut self,
+        folder_path: &Path,
+        manifest: &exchange::ExportManifest,
+        overwrite: bool,
+    ) -> Result<exchange::ImportResult> {
+        let repo = Repository::new(&self.conn);
+        exchange::execute_import(
+            folder_path,
+            manifest,
+            overwrite,
+            &repo,
+            &mut self.graph,
+            &self.config.diffs_dir,
+        )
     }
 
     /// Remove a node and all its associated links (edges and diff files)

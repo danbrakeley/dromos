@@ -29,6 +29,8 @@ Commands:
   build <source> <hash>   Build a ROM by applying diffs from source to target
   check <file>            Check if a ROM is in the database
   edit <hash>             Edit metadata for a ROM
+  export [hash] <path>    Export ROMs to a .dromos archive
+  import <path>           Import ROMs from a .dromos archive
   link <file1> [file2]    Create bidirectional links between ROMs
   links <file|hash>       Show all links for a ROM
   list, ls                List all ROMs (sorted by title)
@@ -93,6 +95,7 @@ cargo fmt            # Format code
 
 ## DONE
 
+- Export/import ROMs and diffs as portable `.dromos` archives (ZIP with JSON manifest)
 - Colorized output: startup banner, list command (title, version, hash, type, links), prompts, errors/warnings
 - Drop unused columns for parsed headers from database (prg_rom_size, chr_rom_size, etc.)
 - Data revision system for automatic database/diffs wipe on schema changes (see CLAUDE.md)

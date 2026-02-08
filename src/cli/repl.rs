@@ -7,6 +7,7 @@ use rustyline::history::DefaultHistory;
 use crate::config::StorageConfig;
 use crate::db::NodeMetadata;
 use crate::error::Result;
+use crate::exchange::OverwriteAction;
 use crate::graph::RomNode;
 use crate::rom::{RomType, format_hash, hash_rom_file, reconstruct_nes_file_raw};
 use crate::storage::StorageManager;
@@ -58,6 +59,11 @@ impl ReplState {
             Command::Add { file } => self.cmd_add(&file, rl)?,
             Command::Build { source, target } => self.cmd_build(&source, &target, rl)?,
             Command::Edit { target } => self.cmd_edit(&target, rl)?,
+            Command::Export {
+                hash_prefix,
+                output,
+            } => self.cmd_export(hash_prefix.as_deref(), &output)?,
+            Command::Import { input } => self.cmd_import(&input)?,
             Command::Link { files } => self.cmd_link(&files, rl)?,
             Command::Links { target } => self.cmd_links(&target)?,
             Command::List => self.cmd_list(),
@@ -73,6 +79,8 @@ impl ReplState {
         println!("  build <source> <hash>   Build a ROM by applying diffs from source to target");
         println!("  check <file>            Check if a ROM is in the database");
         println!("  edit <hash>             Edit metadata for a ROM");
+        println!("  export [hash] <path>    Export ROMs to a folder");
+        println!("  import <path>           Import ROMs from a folder");
         println!("  link <file1> [file2]    Create bidirectional links between ROMs");
         println!("  links <file|hash>       Show all links for a ROM");
         println!("  list, ls                List all ROMs (sorted by title)");
@@ -624,6 +632,193 @@ impl ReplState {
             theme::success("Updated:"),
             display_title,
             theme::styled_hash(&format_hash(&sha256)[..16])
+        );
+
+        Ok(())
+    }
+
+    fn cmd_export(&self, hash_prefix: Option<&str>, output: &Path) -> Result<()> {
+        let component_hash = match hash_prefix {
+            Some(prefix) => {
+                let node = match self.storage.find_node_by_hash_prefix(prefix) {
+                    Some(n) => n,
+                    None => {
+                        eprintln!("{} {}", theme::error("ROM not found:"), prefix);
+                        return Ok(());
+                    }
+                };
+                Some(node.sha256)
+            }
+            None => None,
+        };
+
+        // Count nodes that will be exported
+        let node_count = match &component_hash {
+            Some(h) => self.storage.connected_component_count(h).unwrap_or(0),
+            None => self.storage.list().0.len(),
+        };
+
+        // Confirm before creating the folder
+        print!(
+            "Export {} node{} to folder \"{}\"? [y/N]: ",
+            node_count,
+            if node_count == 1 { "" } else { "s" },
+            output.display()
+        );
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+
+        if input != "y" && input != "yes" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+
+        // Warn if folder already exists
+        if output.is_dir() {
+            print!(
+                "{} Folder \"{}\" already exists. Continue? [y/N]: ",
+                theme::warning("Warning:"),
+                output.display()
+            );
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let input = input.trim().to_lowercase();
+
+            if input != "y" && input != "yes" {
+                println!("Cancelled.");
+                return Ok(());
+            }
+        }
+
+        // Export with per-file conflict handling
+        let mut on_conflict = |path: &Path| -> Result<OverwriteAction> {
+            print!("Overwrite \"{}\"? [y/N/a]: ", path.display());
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            match input.trim().to_lowercase().as_str() {
+                "y" | "yes" => Ok(OverwriteAction::Overwrite),
+                "a" | "abort" => Ok(OverwriteAction::Abort),
+                _ => Ok(OverwriteAction::Skip),
+            }
+        };
+
+        let stats = self
+            .storage
+            .export(output, component_hash.as_ref(), &mut on_conflict)?;
+
+        if stats.aborted {
+            println!("Export aborted.");
+            return Ok(());
+        }
+
+        println!(
+            "{} {} node{}, {} edge{} to {}",
+            theme::success("Exported:"),
+            stats.nodes,
+            if stats.nodes == 1 { "" } else { "s" },
+            stats.edges,
+            if stats.edges == 1 { "" } else { "s" },
+            output.display()
+        );
+
+        Ok(())
+    }
+
+    fn cmd_import(&mut self, input: &Path) -> Result<()> {
+        if !input.is_dir() {
+            eprintln!("{} {}", theme::error("Folder not found:"), input.display());
+            return Ok(());
+        }
+
+        // Phase 1: Analyze
+        let (manifest, conflicts) = match self.storage.analyze_import(input) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{} {}", theme::error("Import failed:"), e);
+                return Ok(());
+            }
+        };
+
+        println!(
+            "{} {} node{}, {} diff{}",
+            theme::info("Folder contains:"),
+            manifest.files.len(),
+            if manifest.files.len() == 1 { "" } else { "s" },
+            manifest.diffs.len(),
+            if manifest.diffs.len() == 1 { "" } else { "s" },
+        );
+
+        // Show conflicts
+        let overwrite = if !conflicts.is_empty() {
+            println!(
+                "\n{} {} node{} with different metadata:",
+                theme::warning("Conflicts:"),
+                conflicts.len(),
+                if conflicts.len() == 1 { "" } else { "s" },
+            );
+            for conflict in &conflicts {
+                println!(
+                    "  {} ({})",
+                    theme::title(&conflict.title),
+                    theme::styled_hash(&conflict.sha256[..16])
+                );
+                for diff in &conflict.diffs {
+                    println!(
+                        "    {}: {} -> {}",
+                        theme::meta(&diff.field),
+                        theme::dim(if diff.local_value.is_empty() {
+                            "(empty)"
+                        } else {
+                            &diff.local_value
+                        }),
+                        &diff.import_value
+                    );
+                }
+            }
+
+            print!("\nOverwrite local metadata with imported values? [y/N]: ");
+            io::stdout().flush()?;
+
+            let mut answer = String::new();
+            io::stdin().read_line(&mut answer)?;
+            let answer = answer.trim().to_lowercase();
+            if answer != "y" && answer != "yes" {
+                // Still import but skip overwrites
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        // Phase 2: Execute
+        let result = match self.storage.execute_import(input, &manifest, overwrite) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{} {}", theme::error("Import failed:"), e);
+                return Ok(());
+            }
+        };
+
+        println!(
+            "{} {} added, {} skipped, {} overwritten, {} edge{} added, {} edge{} skipped, {} diff{} copied",
+            theme::success("Imported:"),
+            result.nodes_added,
+            result.nodes_skipped,
+            result.nodes_overwritten,
+            result.edges_added,
+            if result.edges_added == 1 { "" } else { "s" },
+            result.edges_skipped,
+            if result.edges_skipped == 1 { "" } else { "s" },
+            result.diffs_copied,
+            if result.diffs_copied == 1 { "" } else { "s" },
         );
 
         Ok(())
